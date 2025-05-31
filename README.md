@@ -69,7 +69,15 @@ Execution of the scripts from this repository requires that these dependencies a
 ```
 ./setup.sh path_to_install                          #install code from this repository
 export PATH=$PATH:path_to_install/bin
-Rscript ./build/manualInstall.R <R libraries path>  #install all the required R libraries
+# Rscript ./build/manualInstall.R <R libraries path>  #install all the required R libraries
+```
+
+### micromamba environment
+
+Load the nanoseq micromamba environment
+```
+micromamba env create -n nanoseq -f nanoseq.yaml
+micromamba activate nanoseq
 ```
 
 ### Preprocessing of the sequencing data

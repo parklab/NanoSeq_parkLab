@@ -36,6 +36,10 @@ SOURCE_LIBDEFLATE="https://github.com/ebiggers/libdeflate/archive/v1.12.tar.gz"
 SOURCE_HTSLIB="https://github.com/samtools/htslib/releases/download/1.14/htslib-1.14.tar.bz2"
 SOURCE_GZSTREAM="https://www.cs.unc.edu/Research/compgeom/gzstream/gzstream.tgz"
 
+export LD_LIBRARY_PATH=/n/data1/hms/dbmi/park/vinay/pipelines/external/zlib/zlib-1.3.1/lib:$LD_LIBRARY_PATH
+export PKG_CONFIG_PATH=/n/data1/hms/dbmi/park/vinay/pipelines/external/zlib/zlib-1.3.1/lib/pkgconfig/:$PKG_CONFIG_PATH
+
+
 get_distro () {
   EXT=""
   if [[ $2 == *.tar.bz2* ]] ; then
