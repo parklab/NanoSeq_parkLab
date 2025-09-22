@@ -1,0 +1,5 @@
+fasta: /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh37d5/human_g1k_v37_decoy.fasta
+dbsnp: /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh37d5/dbSNP/GRCh37_latest_dbSNP_all.vcf.gz
+# njobs: 60
+# njobs: 500
+njobs: 300

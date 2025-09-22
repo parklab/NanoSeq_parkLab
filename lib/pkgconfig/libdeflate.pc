@@ -1,0 +1,10 @@
+prefix=/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab
+exec_prefix=${prefix}
+includedir=/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab/include
+libdir=/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab/lib
+
+Name: libdeflate
+Description: Fast implementation of DEFLATE, zlib, and gzip
+Version: 1.12
+Libs: -L${libdir} -ldeflate
+Cflags: -I${includedir}

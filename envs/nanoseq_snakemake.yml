@@ -1,0 +1,25 @@
+name: /n/data1/hms/dbmi/park/vinay/micromamba/envs/nanoseq
+channels:
+  - conda-forge
+  - r
+  - cytoflow
+  - bioconda
+  - defaults
+  - bpteague
+  - anaconda
+  - nodefaults
+dependencies:
+  - bioconda::biobambam
+  - bioconda::samtools
+  - bioconda::bwa
+  - bcftools=1.21
+  - conda-forge::r-base==4.4.0
+  - bioconda::htslib
+  - imperial-college-research-computing::gzstream
+  - bioconda::bioconductor-deepsnv
+  - snakemake=7.30.2
+  - python=3.11.0
+  - zlib
+  - libzlib
+  - conda-forge::gcc
+prefix: /n/data1/hms/dbmi/park/vinay/micromamba/envs/nanoseq

@@ -66,6 +66,12 @@ Execution of the scripts from this repository requires that these dependencies a
 
 ### Installation
 
+Make sure to link reference genomes
+```
+ln -s /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh37d5/human_g1k_v37_decoy.fasta ./hs37d5.fa
+ln -s /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh37d5/human_g1k_v37_decoy.fasta.fai ./hs37d5.fa.fai
+```
+
 ```
 ./setup.sh path_to_install                          #install code from this repository
 export PATH=$PATH:path_to_install/bin

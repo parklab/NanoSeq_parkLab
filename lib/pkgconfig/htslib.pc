@@ -1,0 +1,15 @@
+includedir=/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab/include
+libdir=/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab/lib
+
+# Flags and libraries needed when linking against a static libhts.a
+# (used by manual and semi-manual pkg-config(1)-style enquiries).
+static_ldflags=-L/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab/lib
+static_libs=-lpthread -lz -lm -lbz2 -llzma -lcurl -lcrypto
+
+Name: htslib
+Description: C library for high-throughput sequencing data formats
+Version: 1.14
+Cflags: -I${includedir}
+Libs: -L${libdir} -lhts
+Libs.private: -L${libdir} -L/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab/lib -lhts -lm -lpthread
+Requires.private: zlib  bzip2 liblzma
