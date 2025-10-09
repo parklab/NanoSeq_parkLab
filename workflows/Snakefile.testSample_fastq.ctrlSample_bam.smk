@@ -23,6 +23,21 @@ jobs_partitioned = list(range(n_jobs_partitioned+1))[1::]
 # chroms
 CHROMS = [i+1 for i in range(24)]
 
+# NOISE MASK AND SNPS
+NOISE = config["noise_wgns"]
+SNP = config["snp_wgns"]
+if config["restriction_enzyme_nanoseq"] is not None:
+    # don't use restriction enzyme nanoseq
+    print("ANALYZING RESTRICTION-ENZYME NANOSEQ")
+    NOISE = config["noise_rens"]
+    SNP = config["snp_rens"]
+else:
+    print("ANALYZING WHOLE-GENOME NANOSEQ")
+
+print("NOISE mask: %s"%NOISE)
+print("SNP for filtering: %s"%SNP)
+
+
 # WE WANT TO LIMIT TO THOSE SAMPLES THAT HAVE A MATCHED NORMAL -- WE CAN ADD THIS LATER...
 
 #
@@ -36,18 +51,25 @@ rule all:
         expand("{sample}.runNanoSeq/tmpNanoSeq/part/args.json",sample=SAMPLE),
         expand("{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.start",sample=SAMPLE,job=jobs_partitioned),
         #
-        # expand("control_bam/{sample}.diluted.ctrl.bam",sample=SAMPLE),
-        # expand("control_bam/{sample}.diluted.ctrl.bam.bai",sample=SAMPLE),
-        # expand("efficiency/{sample}.tsv",sample=SAMPLE),
+        # # CONTROL BAM
+        expand("control_bam/{sample}.diluted.ctrl.bam",sample=SAMPLE),
+        expand("control_bam/{sample}.diluted.ctrl.bam.bai",sample=SAMPLE),
+        # # EFFICIENCY
+        expand("efficiency/{sample}.tsv",sample=SAMPLE),
         # #
+        # # DSA
         expand("{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.dsa.bed.gz",sample=SAMPLE,job=jobs_partitioned),
+        expand("{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.done",sample=SAMPLE,job=jobs_partitioned),
+        # # SNVs
         expand("{sample}.runNanoSeq/tmpNanoSeq/var/{job}.var",sample=SAMPLE,job=jobs_partitioned),
+        expand("{sample}.runNanoSeq/tmpNanoSeq/var/{job}.done",sample=SAMPLE,job=jobs_partitioned),
+        # # INDELS
         expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.indel.vcf.gz",sample=SAMPLE,job=jobs_partitioned),
         expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.indel.filtered.vcf.gz",sample=SAMPLE,job=jobs_partitioned),
-        # #
-        expand("{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.done",sample=SAMPLE,job=jobs_partitioned),
-        expand("{sample}.runNanoSeq/tmpNanoSeq/var/{job}.done",sample=SAMPLE,job=jobs_partitioned),
         expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.done",sample=SAMPLE,job=jobs_partitioned),
+        # # SUMMARY
+        expand("{sample}.runNanoSeq/tmpNanoSeq/post/results.muts.vcf.gz",sample=SAMPLE),
+        expand("{sample}.runNanoSeq/tmpNanoSeq/post/1.done",sample=SAMPLE),
 
 
 include: "Snakefile.preprocess_duplex_fastq.smk" # will include workflows for extracting barcodes, mapping reads, and the tag steps (add rc and mc, mark ODs, and create read bundle tags)
