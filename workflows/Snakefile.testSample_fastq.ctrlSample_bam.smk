@@ -45,7 +45,12 @@ rule all:
     input:
         # ALIGNMENTS
         expand("readBundle_duplex/{sample}.filtered.bam",sample=SAMPLE),
-        #
+        expand("duplication_rates/duplication_rates_duplex.tsv"),
+        # EFFICIENCY
+        expand("efficiency/{sample}.tsv",sample=SAMPLE),
+        expand("efficiency/{sample}.RBs",sample=SAMPLE),
+        expand("efficiency/{sample}.RBs.pdf",sample=SAMPLE),
+        expand("efficiency/{sample}.RBs.GC_inserts.tsv",sample=SAMPLE),
         # JOB INITIATION
         expand("{sample}.runNanoSeq/tmpNanoSeq/cov/{chroms}.done",sample=SAMPLE,chroms=CHROMS),
         expand("{sample}.runNanoSeq/tmpNanoSeq/part/args.json",sample=SAMPLE),
@@ -67,6 +72,10 @@ rule all:
         expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.indel.vcf.gz",sample=SAMPLE,job=jobs_partitioned),
         expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.indel.filtered.vcf.gz",sample=SAMPLE,job=jobs_partitioned),
         expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.done",sample=SAMPLE,job=jobs_partitioned),
+        # # SSINDELS
+        expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.indel.w_ssIndel.vcf.gz",sample=SAMPLE,job=jobs_partitioned),
+        expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.indel.w_ssIndel.filtered.vcf.gz",sample=SAMPLE,job=jobs_partitioned),
+        expand("{sample}.runNanoSeq/tmpNanoSeq/indel/{job}.w_ssIndel.done",sample=SAMPLE,job=jobs_partitioned),
         # # SUMMARY
         expand("{sample}.runNanoSeq/tmpNanoSeq/post/results.muts.vcf.gz",sample=SAMPLE),
         expand("{sample}.runNanoSeq/tmpNanoSeq/post/1.done",sample=SAMPLE),

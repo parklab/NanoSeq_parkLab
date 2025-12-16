@@ -115,11 +115,29 @@ while(<IN>) {
 
   if($r1 >= $min_size_subfam && $r2 >= $min_size_subfam) {
     my $bulktotal = $bulkForwardTotal+$bulkReverseTotal;
-    if($dplxForwardIndel+$dplxReverseIndel < 0.9*($dplxForwardTotal+$dplxReverseTotal)) {
-      next; # only interested in indels
+    # original condition from Andrea -- throw out any indel with a likely imbalance in support, i.e. fewer than of the reads in the bundle have indel support
+    if($dplxForwardIndel+$dplxReverseIndel < 0.5*($dplxForwardTotal+$dplxReverseTotal)) {
+        next; # throw out anything 
     }
 
-    
+    # for other indels that likely pass
+    if($dplxForwardIndel+$dplxReverseIndel >= 0.5*($dplxForwardTotal+$dplxReverseTotal )) {
+            # different cases. 
+            # case 1: check if the indel is unanimous on both strands
+        if ($dplxForwardIndel == $dplxForwardTotal && $dplxReverseIndel == $dplxReverseTotal) {
+            # yes, unanimous on both strands. Keep the indel
+            # do nothing
+            # case 2: check if indel is unanimous on just one strand but not the other. AND, ensure that if unanimous on one strand that the other strand doesn't have it. 
+        } elsif (($dplxForwardIndel == $dplxForwardTotal || $dplxReverseIndel == $dplxReverseTotal ) && ($dplxForwardIndel*$dplxReverseIndel == 0) && ($dplxForwardTotal*$dplxReverseTotal > 0)) {
+            # yes, unanimous on just one strand *and* ref-reads are present for both strands Keep indel 
+            # do nothing
+        } else {
+            # the indel is not unanimous on both strands or one just one strand. Means that the indel might be on part of one or both strands, but it's not unanimous on one or both. DISCARd
+            next;
+        }
+    }
+
+
     my $qpos;
     my $orientation_type;
     my $qposF = $chromBeg-$dplxBreakpointBeg + 1;
