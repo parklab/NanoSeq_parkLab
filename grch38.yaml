@@ -1,0 +1,12 @@
+fastq_dir: /n/data1/hms/dbmi/park/yujie/Nanoseq/NanoSeq_indelRealign_pipeline/20251201_doubleSidedSelectionTest_fastqs/merged_fastqs
+fasta: /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh38_smaht/hg38_no_alt.fa
+# dbsnp: /n/data1/hms/dbmi/park/SOFTWARE/GATK/GATK-bundle/dbsnp_147_hg38_ucsc_common_all_20160601.vcf
+dbsnp: /n/data1/hms/dbmi/park/SOFTWARE/GATK/GATK-bundle/dbsnp_147_hg38_common_all_20160601.vcf.gz
+njobs: 300
+control_is_undiluted_nanoseq: True
+dilute_ctrl_bam: True 
+restriction_enzyme_nanoseq: 
+noise_rens: /n/data1/hms/dbmi/park/yujie/Nanoseq/NanoSeq_indelRealign_pipeline/from_abascal/NOISE_GRCh38.rens.bed.gz
+snp_rens:   /n/data1/hms/dbmi/park/yujie/Nanoseq/NanoSeq_indelRealign_pipeline/from_abascal/SNP_GRCh38.rens.bed.gz
+noise_wgns: /n/data1/hms/dbmi/park/yujie/Nanoseq/NanoSeq_indelRealign_pipeline/from_abascal/NOISE_GRCh38.wgns.bed.gz
+snp_wgns:   /n/data1/hms/dbmi/park/yujie/Nanoseq/NanoSeq_indelRealign_pipeline/from_abascal/SNP_GRCh38.wgns.bed.gz
