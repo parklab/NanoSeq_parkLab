@@ -175,3 +175,28 @@ rule mark_read_bundles:
         bin/bamaddreadbundles -I {input} -O {output.outbam} || exit 1
         samtools index {output.outbam} || exit 1
         """
+
+rule summarize_duplication_rates:
+    input:
+        expand(rules.mark_optical_duplicates.output.metrics,sample=SAMPLE),
+    output:
+        "duplication_rates/duplication_rates_duplex.tsv",
+    benchmark:
+        "benchmarks/summarize_duplication_rates/duplication_rates_duplex.txt"
+    log:
+        "logs/summarize_duplication_rates/duplication_rates_duplex.log"
+    resources:
+        mem_mb=2000,
+        runtime=10,
+    threads: 1
+    shell:
+        """
+        grep -A 2 -s "##METRICS" {input} | \
+        grep -v "##METRICS" | \
+        sed "s/\\-LIBRARY/\nLIBRARY/g" | \
+        grep -Pv ".txt$" | \
+        sed "s/\\-Unknown Library//g" | \
+        grep -v "\-\-" | \
+        sort -k1,1 -k8,8n | \
+        uniq > {output}
+        """
