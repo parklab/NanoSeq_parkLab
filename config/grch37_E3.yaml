@@ -1,0 +1,60 @@
+sample: test
+
+# Inputs
+duplex_cram: ../EGAF00004455593/32268#15.filtered.cram
+normal_cram: ../EGAF00004455607/32268#29.neat.cram
+fasta: ../hs37d5/hs37d5.fa
+
+# Pipeline code + tool paths
+runNanoSeq: ../NanoSeq_parkLab/python/runNanoSeq.py
+nanoseq_bin: ../NanoSeq_pipeline_install_new/bin
+
+# Conda env you used in sbatch scripts
+conda_env: ../conda_environment/nanoseq
+
+# Job counts
+cov_k: 4
+njobs: 80
+
+# DSA masks
+snp_mask: ../NanoSeq_parkLab/test/SNP.sorted.bed.gz
+noise_mask: ../NanoSeq_parkLab/test/NOISE.sorted.bed.gz
+
+# cov params
+cov:
+  Q: 0
+  exclude: "MT,GL%,NC_%,hs37d5"
+
+# dsa params
+dsa:
+  d: 2
+  q: 30
+
+# var params
+var:
+  a: 50
+  b: 0
+  c: 0
+  d: 2
+  f: 0.9
+  i: 1
+  m: 8 # Default 80
+  n: 3
+  p: 0
+  q: 60
+  r: 144
+  v: 0.01
+  x: 8
+  z: 6 # Default 12
+
+# indel params
+indel:
+  s: sample
+  rb: 2
+  t3: 135
+  t5: 10
+  z: 15
+  a: 50
+  c: 0.02
+  v: 0.01
+
