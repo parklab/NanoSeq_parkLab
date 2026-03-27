@@ -149,6 +149,8 @@ rule mark_read_bundles:
         samtools index {output.outbam} || exit 1
         """
 
+include: "Snakefile.a4s2_bam_stats.smk"    
+
 # is an undiluted nanoseq used as control?
 if config["control_is_undiluted_nanoseq"] is None:
     print("Nanoseq will be analyzed against a standard WGS bulk (i.e. not undiluted Nanoseq)")

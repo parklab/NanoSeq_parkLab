@@ -10,3 +10,4 @@ snp_rens: ../test/from_abascal/SNP_GRCh37.rens.bed.gz
 noise_wgns: ../test/from_abascal/NOISE_GRCh37.wgns.bed.gz
 snp_wgns: ../test/from_abascal/SNP_GRCh37.wgns.bed.gz
 dilute_ctrl_bam:
+undiulted_nanoseq_bam_ctrl: 0

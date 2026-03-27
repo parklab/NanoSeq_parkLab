@@ -1,23 +1,24 @@
-# shell.prefix("export SENTIEON_LICENSE=license.rc.hms.harvard.edu:8990; \
-# export SENTIEON_INSTALL_DIR=/n/data1/hms/dbmi/park/SOFTWARE/Sentieon/sentieon-genomics-202308.03; \
-# export PATH=$PATH:/n/data1/hms/dbmi/park/SOFTWARE/Sentieon/sentieon-genomics-202308.03/bin; \
-# module load gcc/14.2.0 ; \
-# module load bcftools/1.21; \
-# export PATH=$PATH:/n/data1/hms/dbmi/park/vinay/pipelines/external/NanoSeq_parkLab/bin;")
+# function to get the sample FASTQ files for a given sample and paired-end read. this will be used in the alignment rule to specify the input FASTQ files for each sample. we will check for the existence of the FASTQ files in the extract_tags rule, so we can assume that the FASTQ files exist when we get to the align_samples rule. this function will allow us to easily modify the naming convention for the FASTQ files if needed without having to modify the entire workflow.
+def get_sample_fastq(wildcards):
+    sample_fastq = [f"fastq/{wildcards.sample}.{pe}.fq.gz" for pe in PAIRED_ENDS] # this will be used to check for the existence of the sample FASTQ files, but the actual alignment rule will use the control BAM file for the downstream analysis, so we don't need to worry about the sample FASTQ files for now. we can just check for their existence and then use the control BAM file for the downstream analysis.
+    for i in sample_fastq:
+        if not os.path.exists(i):
+            raise ValueError(f"Sample FASTQ file not found for sample {wildcards.sample} and paired-end {PAIRED_ENDS}. Expected FASTQ: {i}")
+    return sample_fastq
 
-rule extract_tags:
+# ALIGNMENT AND READ BUNDLING FOR SAMPLES
+# alignment rule:
+
+rule extract_sample_tags:
     input:
-        expand("input_duplex_fq/{sample}.{pe}.fastq.gz",pe=PAIRED_ENDS,allow_missing=True)
-        # "input_duplex_fq/{sample}.R1.fastq.gz",
-        # "input_duplex_fq/{sample}.R2.fastq.gz",
+        get_sample_fastq
     output:
-        expand("extracted_tags_duplex_fq/{sample}.{pe}.fastq.gz",pe=PAIRED_ENDS,allow_missing=True)
-        # "extracted_tags_duplex_fq/{sample}.R1.fastq.gz",
-        # "extracted_tags_duplex_fq/{sample}.R2.fastq.gz",
+        expand("extracted_sample_tags_duplex_fq/{sample}.{pe}.fastq.gz",pe=PAIRED_ENDS,allow_missing=True)
+    # when: check_if_fastq_exists # SNAKEMAKE V8+
     benchmark:
-        "benchmarks/extract_tags/{sample}.txt"
+        "benchmarks/extract_sample_tags/{sample}.txt"
     log:
-        "logs/extract_tags/{sample}.log"
+        "logs/extract_sample_tags/{sample}.log"
     params: # a preset for the ultrashear or covaris libraries
         bases_trim=3,
         bases_skip=2,
@@ -26,8 +27,11 @@ rule extract_tags:
         mem_mb=10000,
         runtime=240,
     threads: 1
+    group:
+        "extract_sample_tags"
     shell:
         """
+        # TAG EXTRACTION
         python ./python/extract_tags.py \
         -a {input[0]} \
         -b {input[1]} \
@@ -38,57 +42,49 @@ rule extract_tags:
         -l {params.read_len}
         """
 
-rule align:
+rule align_samples:
     input:
-        expand(rules.extract_tags.output,allow_missing=True),
-    output:
-        outsam="aligned_duplex/{sample}.sam"
-    benchmark:
-        "benchmarks/align/{sample}.txt"
+        expand(rules.extract_sample_tags.output,pe=PAIRED_ENDS,allow_missing=True),
+    output: 
+        tempBam=temp("aligned_bam/{sample}.unosrted.bam"),
+        sortedBam="aligned_bam/{sample}.bam",
+        sortedBamIndex="aligned_bam/{sample}.bam.bai"
     log:
-        "logs/align/{sample}.log"
+        "logs/align_samples/{sample}.log"
     params:
         fasta=config["fasta"],
+        fastq_dir=FASTQ_DIR,
     resources:
         mem_mb=30000,
-        runtime=120,
-    threads: 36
-    shell:
+        runtime=60*24,
+    threads: 12
+    group:
+        "align_samples"
+    shell:        
         """
+        ulimit -c unlimited
+        ulimit -n 8192
+        # SENTIEON
+
         sentieon \
         bwa mem \
         -t {threads} \
         -K 10000000 \
         -C \
         {config[fasta]} \
-        {input} > {output.outsam} || exit 1
+        {input} | \
+        samtools view -@ {threads} -bS > {output.tempBam} || exit 1
+        
+        samtools sort -@ {threads} -o {output.sortedBam} {output.tempBam}
+        samtools index {output.sortedBam}
         """
 
-rule bam_index_aligned:
-    input:
-        rules.align.output.outsam
-    output:
-        outbam="aligned_duplex/{sample}.bam",
-        outbamind="aligned_duplex/{sample}.bam.bai",
-    benchmark:
-        "benchmarks/align/{sample}.txt"
-    log:
-        "logs/align/{sample}.log"
-    params:
-        fasta=config["fasta"],
-    resources:
-        mem_mb=30000,
-        runtime=120,
-    threads: 36
-    shell:
-        """
-        samtools view -b -o {output.outbam} {input}
-        samtools index {output.outbam}
-        """
+        # control_bam=control_bam/${{control}}.diluted.ctrl.bam
+        # control_bam_index=control_bam/${{control}}.diluted.ctrl.bai
 
 rule prepare_RcMcOd_tags:
     input:
-        rules.align.output.outsam
+        "aligned_bam/{sample}.bam",
     output:
         tmpdir=temp(directory("{sample}_tmp/")),
         outbam="rcMcOd_duplex/{sample}.od.bam"
@@ -100,8 +96,10 @@ rule prepare_RcMcOd_tags:
         fasta=config["fasta"],
     resources:
         mem_mb=30000,
-        runtime=480,
+        runtime=60*24,
     threads: 12
+    group:
+        "prepare_RcMcOd_tags"
     shell:
         """
         ulimit -c unlimited
@@ -109,8 +107,7 @@ rule prepare_RcMcOd_tags:
         tmpdir={wildcards.sample}_tmp
         mkdir -p $tmpdir
         echo -e "{wildcards.sample}" >> {log}
-        bamsormadup inputformat=sam rcsupport=1 threads={threads} tmpfile=$tmpdir/{wildcards.sample} < {input} > {output.outbam} 
-        # threads=1 to avoid multithreading issues with bamsormadup
+        bamsormadup inputformat=bam rcsupport=1 threads=1 tmpfile=$tmpdir/{wildcards.sample} < {input} > {output.outbam}
         """
         # bamsormadup inputformat=sam rcsupport=1 threads={threads} < {input} > {output.outbam} 
 
@@ -132,6 +129,8 @@ rule mark_optical_duplicates:
         mem_mb=30000,
         runtime=480,
     threads: 12
+    group:
+        "mark_optical_duplicates"
     shell:
         """
         ulimit -c unlimited
@@ -154,7 +153,6 @@ rule mark_optical_duplicates:
         # D={params.outduplicates} \
         # bamsormadup inputformat=sam rcsupport=1 threads={threads} < {input} > {output.outbam} 
 
-
 rule mark_read_bundles:
     input:
         rules.mark_optical_duplicates.output.outbam,
@@ -171,33 +169,10 @@ rule mark_read_bundles:
         mem_mb=30000,
         runtime=480,
     threads: 36
+    group:
+        "mark_read_bundles"
     shell:
         """
         bin/bamaddreadbundles -I {input} -O {output.outbam} || exit 1
         samtools index {output.outbam} || exit 1
-        """
-
-rule summarize_duplication_rates:
-    input:
-        expand(rules.mark_optical_duplicates.output.metrics,sample=SAMPLE),
-    output:
-        "duplication_rates/duplication_rates_duplex.tsv",
-    benchmark:
-        "benchmarks/summarize_duplication_rates/duplication_rates_duplex.txt"
-    log:
-        "logs/summarize_duplication_rates/duplication_rates_duplex.log"
-    resources:
-        mem_mb=2000,
-        runtime=10,
-    threads: 1
-    shell:
-        """
-        grep -A 2 -s "##METRICS" {input} | \
-        grep -v "##METRICS" | \
-        sed "s/\\-LIBRARY/\nLIBRARY/g" | \
-        grep -Pv ".txt$" | \
-        sed "s/\\-Unknown Library//g" | \
-        grep -v "\-\-" | \
-        sort -k1,1 -k8,8n | \
-        uniq > {output}
         """

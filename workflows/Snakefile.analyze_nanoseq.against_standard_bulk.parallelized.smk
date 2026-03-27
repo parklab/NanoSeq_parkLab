@@ -16,6 +16,7 @@ jobs_partitioned = list(range(n_jobs_partitioned+1))[1::]
 
 # if exists("input_duplex_fq/{sample}.R1.fastq.gz")
 def check_ctrl_bam_exists(wildcards):
+    print("Checking if Standard Illumina WGS BAM exists for sample %s..."%wildcards.sample)
     file_path = f"control_bam/{wildcards.sample}.ctrl.bam"
     if os.path.exists(file_path):
         return(file_path)
@@ -48,6 +49,8 @@ if config["dilute_ctrl_bam"]:
         threads: 1
         conda:
             "../envs/nanoseq_snakemake.yml"
+        group:
+            "dilute_normal"
         shell:
             """
             PATH=$PATH:$PWD/bin/
@@ -73,6 +76,8 @@ else:
         threads: 1
         conda:
             "../envs/nanoseq_snakemake.yml"
+        group:
+            "dilute_normal"
         shell:
             """
             cd control_bam
@@ -103,6 +108,8 @@ rule check_efficiency:
     threads: 20
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group:
+        "check_efficiency"
     shell:
         """
         PATH=$PATH:$PWD/bin/:$PWD/perl/
@@ -141,8 +148,11 @@ rule coverage_histogram_controlBam:
         mem_mb=10000,
         runtime=240,
     threads: 10
+    group:
+        "coverage_histogram_controlBam"
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group: "coverage_histogram_controlBam"
     shell:
         """
         PATH=$PATH:$PWD/bin/
@@ -162,7 +172,7 @@ rule coverage_histogram_controlBam:
         -R {params.fasta} \
         cov \
         -Q 0 \
-        --exclude "MT,GL%,NC_%,hs37d5"
+        --exclude "MT,GL%,NC_%,hs37d5,chrM,%_random,chrUn%,chrEBV"
 
         """
 
@@ -187,6 +197,7 @@ rule partition_coverage:
     threads: 10
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group: "partition_coverage"
     shell:
         """
         PATH=$PATH:$PWD/bin/
@@ -207,7 +218,7 @@ rule list_intervals:
     input:
         intvl=expand("intervals/{interval}.intervals.list",interval=INTERVALS)
     output:
-        intvl_list=temp(".intervals.txt")
+        intvl_list=".intervals.txt"
     benchmark:
         "benchmarks/list_intervals/all.txt"
     log:
@@ -221,11 +232,12 @@ rule list_intervals:
         mem_mb=5000,
         runtime=20,
     threads: 1
+    group: "list_intervals"
     conda:
         "../envs/nanoseq_snakemake.yml"
     shell:
         """
-        ls -1 {input.intvl} | sed "s/_/\t/g" | sort -k1,1 -k2,2n | sed "s/\t/_/g" > {output.intvl_list}
+        ls -1 {input.intvl} | sed "s/_/\\t/g" | sort -k1,1 -k2,2n | sed "s/\\t/_/g" > {output.intvl_list}
         """
 
 rule start_dsa:
@@ -248,13 +260,15 @@ rule start_dsa:
     threads: 1
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group: "start_dsa"
     shell:
         """
+        mkdir -p {wildcards.sample}.runNanoSeq/tmpNanoSeq/dsa/
         touch {output.jobToIntvl}
         for i in {params.jobs}; do
             intvl=$(head -$i {input.intvl_list} | tail -1)
             echo -e "$intvl" > {wildcards.sample}.runNanoSeq/tmpNanoSeq/dsa/$i.start
-            echo -e "$i\t$intvl" >> {output.jobToIntvl}
+            echo -e "$i\\t$intvl" >> {output.jobToIntvl}
         done
         """
 
@@ -262,6 +276,7 @@ rule add_dsa_args:
     # modified to add `nfiles` files
     input:
         intvl_list=rules.list_intervals.output.intvl_list,
+        jobToIntvl=rules.start_dsa.output.jobToIntvl,
     output:
         nfiles="{sample}.runNanoSeq/tmpNanoSeq/dsa/nfiles",
         argsJson="{sample}.runNanoSeq/tmpNanoSeq/dsa/args.json",
@@ -275,6 +290,7 @@ rule add_dsa_args:
         mem_mb=5000,
         runtime=10,
     threads: 1
+    group: "add_dsa_args"
     conda:
         "../envs/nanoseq_snakemake.yml"
     shell:
@@ -311,6 +327,7 @@ rule dsa_bed_per_partition:
     threads: 1
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group: "dsa_bed_per_partition"
     shell:
         """
         # set path to file
@@ -368,10 +385,12 @@ rule start_varCall:
         mem_mb=5000,
         runtime=2,
     threads: 1
+    group: "start_varCall"
     conda:
         "../envs/nanoseq_snakemake.yml"
     shell:
         """
+        mkdir -p {wildcards.sample}.runNanoSeq/tmpNanoSeq/var/
         grep -c "^" {input.intvl_list} > {output.nfiles}
         touch {output.argsJson}
         """        
@@ -396,26 +415,28 @@ rule varCall_per_partition:
     log:
         "logs/varCall_per_partition/{sample}.{job}.log"
     params: # a preset for the ultrashear or covaris libraries
-        min_as_xs                           =   50,
-        min_bulk_reads_per_strand           =   3, # 5 formerly, but per Gilad: 3 for non-Nanoseq germline library, set to 0 for undiluted nanoseq library
+        min_num_bulkReads_total             =   12,
+        min_as_xs                           =   50, # as a last resort, co-pilot suggested dropping this to 30
+        max_frac_clips                      =   0, # formerly 0.02, but the Sanger default is 0
         min_number_dplx_reads_per_strand    =   2, # toggle this option to go from a4s2 (default) to a2s1 or a6s3. 
         min_fraction_reads_consensus        =   0.9,
         max_frac_reads_w_indel              =   1.0,
-        min_cycle_num                       =   80,
-        max_num_mismatches                  =   3,
+        min_cycle_num                       =   8, # formerly 80, which was too high
+        max_num_mismatches                  =   3, # co-pilot suggested raising this to 6
         min_fraction_reads_properPairs      =   0,
         min_consensus_base_quality          =   60,
         read_length_post_5prime_trimming    =   144,
-        max_bulk_vaf                        =   0.01,
+        max_bulk_vaf                        =   0.02, # 0.01, # 0.01 may be way too strict
         max_cycle_num                       =   8,
-        min_num_bulkReads_total             =   12,
-        max_frac_clips                      =   0.02,
+        min_bulk_reads_per_strand           =   3, # 5 formerly, but per Gilad: 3 for non-Nanoseq germline library, set to 0 for undiluted nanoseq library
+        # min_num_bulkReads_total             =   6, # formerly 12 -- empirically assessed # should probably be 6, but reducing it all the way to 0 so that we can use external SNP filters
     resources:
         mem_mb                              =   500,
         runtime                             =   5,
     threads: 1
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group: "varCall_per_partition"
     shell:
         """
         # set path to file
@@ -458,7 +479,8 @@ rule start_indelCall:
         nfiles                  =   indelPath+"/nfiles",
         argsJson                =   indelPath+"/args.json",
     params:
-        jobs                    =   jobs_partitioned
+        jobs                    =   jobs_partitioned,
+        indelPath               =   indelPath,
     benchmark:
         "benchmarks/start_indelCall/{sample}.txt"
     log:
@@ -470,8 +492,10 @@ rule start_indelCall:
     threads: 1
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group: "start_indelCall"
     shell:
         """
+        mkdir -p {params.indelPath}
         grep -c "^" {input.intvl_list} > {output.nfiles}
         touch {output.argsJson}
         """        
@@ -510,6 +534,7 @@ rule indelCall_per_partition:
     threads: 1
     conda:
         "../envs/nanoseq_snakemake.yml"
+    group: "indelCall_per_partition"
     shell:
         """
         # set path to file
@@ -551,3 +576,41 @@ rule indelCall_per_partition:
         """
 
 # I should add options to specify the final sample name of the files we are analyzing
+# post
+postPath="{sample}.runNanoSeq/tmpNanoSeq/post/"
+rule post:
+    input:
+        indir                               =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
+        duplex_bam                          =   rules.mark_read_bundles.output.outbam,
+        ctrl_bam                            =   check_ctrl_bam_exists,
+        snv_doneFile                        =   expand(indelPath_wJob+".done",job=jobs_partitioned,allow_missing=True),
+        indel_doneFile                      =   expand(varPath+".done",job=jobs_partitioned,allow_missing=True),
+        nfiles                              =   rules.start_indelCall.output.nfiles,
+        argsJson                            =   rules.start_indelCall.output.argsJson,
+    output:
+        variants                            =   postPath+"results.muts.vcf.gz",
+        doneFile                            =   postPath+"1.done",
+    benchmark:
+        "benchmarks/post/{sample}.txt"
+    log:
+        "logs/post/{sample}.log"
+    params:
+        fasta=config["fasta"],
+    threads: 10
+    resources:
+        mem_mb                  =   5000,
+        runtime                 =   120,
+    conda:
+        "../envs/nanoseq_snakemake.yml"
+    shell:
+        """
+        cd {input.indir}
+        mkdir -p ./tmpNanoSeq/post
+        touch ./tmpNanoSeq/post/args.json
+        runNanoSeq.py \
+        -t {threads} \
+        -A ../{input.ctrl_bam} \
+        -B ../{input.duplex_bam} \
+        -R {params.fasta} \
+        post
+        """

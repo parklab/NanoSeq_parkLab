@@ -1,122 +1,16 @@
-# function to check if control BAMs exist
+# here, we associate each sample with its control, and then run the entire NanoSeq pipeline for each sample-control pair.
 
-CHROMS = [i+1 for i in range(24)]
+def get_control_bam(wildcards):
+    inTable = pd.read_csv("input.tsv",sep="\t",header=0)
+    control = inTable.loc[inTable["TestFastqID"]==wildcards.sample,"ControlFastqID"].values[0]
+    control_bam = f"control_duplex/{control}.diluted.ctrl.bam"
+    return control_bam
 
-# REWRITE THIS WROFKLOW TO SPECIFY THOUSANDS OF CHUNKS AND INSTEAD ASSESS 10KB INTERVALS AT A TIME. 
-
-# I need to give this a run manually in a separate directory outside of Snakefile s thatI know what the workflow steps are like
-
-# for this analysis, we will split BAMs by chromosome to conduct variant calling
-INTERVALS, = glob_wildcards("intervals/{interval}.intervals.list")
-n_jobs_partitioned = len(INTERVALS)
-jobs_partitioned = list(range(n_jobs_partitioned+1))[1::]
-
-# MAYBE A FUNCTON THAT RETURNS THE INDEX OF THE INTERVAL -- FEED BOTH THE INDEX AND THE INTERVAL INTO THE `dsa` JOB
-# def return_output (wildcards,jobs):
-
-
-# if exists("input_duplex_fq/{sample}.R1.fastq.gz")
-def check_ctrl_bam_exists(wildcards):
-    file_path = f"control_bam/{wildcards.sample}.ctrl.bam"
-    if os.path.exists(file_path):
-        return(file_path)
-    else:
-        print("could not locate %s. Please check if you did specify it"%file_path)
-        return(None)
-
-# step to downsample the BAM file such that we have just 1 read per read bundle
-if "dilute_ctrl_bam" not in config:
-    config["dilute_ctrl_bam"] = False
-
-
-# # before this step make sure the following perl packages are installed
-# # perl -MCPAN -e shell
-# # install File::Which
-# # install Capture::Tiny
-
-if config["dilute_ctrl_bam"]:
-    rule dilute_normal:
-        input:
-            ctrl_bam=check_ctrl_bam_exists,
-        output:
-            diluted_control="control_bam/{sample}.diluted.ctrl.bam",
-            diluted_control_bai="control_bam/{sample}.diluted.ctrl.bam.bai",
-        benchmark:
-            "benchmarks/dilute_normal/{sample}.txt"
-        log:
-            "logs/dilute_normal/{sample}.log"
-        params: # a preset for the ultrashear or covaris libraries
-            dilution_factor=0.1, # 0.1 means 10%, 0.01 means 1%
-        resources:
-            mem_mb=10000,
-            runtime=240,
-        threads: 1
-        conda:
-            "../envs/nanoseq_snakemake.yml"
-        shell:
-            """
-            PATH=$PATH:$PWD/bin/
-            randomreadinbundle -I {input.ctrl_bam} -O {output.diluted_control} && \
-            samtools index {output.diluted_control}
-            """
-else:
-    rule dilute_normal:
-        input:
-            ctrl_bam=check_ctrl_bam_exists,
-        output:
-            diluted_control="control_bam/{sample}.diluted.ctrl.bam",
-            diluted_control_bai="control_bam/{sample}.diluted.ctrl.bam.bai",
-        benchmark:
-            "benchmarks/dilute_normal/{sample}.txt"
-        log:
-            "logs/dilute_normal/{sample}.log"
-        params: # a preset for the ultrashear or covaris libraries
-            dilution_factor=0.1, # 0.1 means 10%, 0.01 means 1%
-        resources:
-            mem_mb=10000,
-            runtime=240,
-        threads: 1
-        conda:
-            "../envs/nanoseq_snakemake.yml"
-        shell:
-            """
-            cd control_bam
-            a=$(basename {input.ctrl_bam})
-            b=$(basename {output.diluted_control})
-            ln -s $a $b
-            ln -s $a.bai $b.bai
-            """
-
-# rule dilute_normal:
-#     input:
-#         ctrl_bam="control_bam/{sample}.ctrl.bam",
-#     output:
-#         diluted_control="control_bam/{sample}.diluted.ctrl.bam",
-#         diluted_control_bai="control_bam/{sample}.diluted.ctrl.bam.bai",
-#     benchmark:
-#         "benchmarks/dilute_normal/{sample}.txt"
-#     log:
-#         "logs/dilute_normal/{sample}.log"
-#     params: # a preset for the ultrashear or covaris libraries
-#         dilution_factor=0.1, # 0.1 means 10%, 0.01 means 1%
-#     resources:
-#         mem_mb=10000,
-#         runtime=240,
-#     threads: 1
-#     conda:
-#         "../envs/nanoseq_snakemake.yml"
-#     shell:
-#         """
-#         PATH=$PATH:$PWD/bin/
-#         randomreadinbundle -I {input.ctrl_bam} -O {output.diluted_control} && \
-#         samtools index {output.diluted_control}
-#         """
-
-# MODIFY TO GIVE EFFICIENCIES PER CHROMOSOME
 rule check_efficiency:
     input:
         duplex_bam=rules.mark_read_bundles.output.outbam,
-        ctrl_bam=rules.dilute_normal.output.diluted_control,
+        # duplex_bam="readBundle_duplex/{sample}.filtered.bam",
+        ctrl_bam=get_control_bam,
     output:
         read_bundles="efficiency/{sample}.RBs",
         read_bundles_gc_inserts="efficiency/{sample}.RBs.GC_inserts.tsv",
@@ -133,7 +27,9 @@ rule check_efficiency:
         runtime=240*2,
     threads: 20
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "check_efficiency"
     shell:
         """
         PATH=$PATH:$PWD/bin/:$PWD/perl/
@@ -146,19 +42,11 @@ rule check_efficiency:
         """
         # 2> {logs} 1> {logs}
 
-
-# efficiency_nanoseq.pl \
-# -dedup ../20250630_analyis_parallelized/control_bam/S11239_BA9_NeuN_0_05fmol_CKDL250013506-1A_22T3K2LT4_L8.ctrl.bam \
-# -duplex ../20250630_analyis_parallelized/readBundle_duplex/S11239_BA9_NeuN_0_05fmol_CKDL250013506-1A_22T3K2LT4_L8.filtered.bam \
-# -ref /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh37d5/human_g1k_v37_decoy.fasta \
-# -out test_efficiency -t 12
-        
-
 # specify chromosomes that must finish first...go from 1 to 24
 rule coverage_histogram_controlBam:
     input:
         duplex_bam=rules.mark_read_bundles.output.outbam,
-        ctrl_bam=check_ctrl_bam_exists,
+        ctrl_bam=get_control_bam,
     output:
         # coverage="cov/gIntervals.dat"
         runNanoSeqDir=directory("{sample}.runNanoSeq"),
@@ -174,7 +62,9 @@ rule coverage_histogram_controlBam:
         runtime=240,
     threads: 10
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "coverage_histogram_controlBam"
     shell:
         """
         PATH=$PATH:$PWD/bin/
@@ -202,7 +92,7 @@ rule partition_coverage:
     input:
         indir=rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam=rules.mark_read_bundles.output.outbam,
-        ctrl_bam=check_ctrl_bam_exists,
+        ctrl_bam=get_control_bam,
     output:
         coverage="{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
     benchmark:
@@ -218,7 +108,9 @@ rule partition_coverage:
         runtime=240,
     threads: 10
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "partition_coverage"
     shell:
         """
         PATH=$PATH:$PWD/bin/
@@ -254,7 +146,9 @@ rule list_intervals:
         runtime=20,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "list_intervals"
     shell:
         """
         ls -1 {input.intvl} | sed "s/_/\t/g" | sort -k1,1 -k2,2n | sed "s/\t/_/g" > {output.intvl_list}
@@ -281,7 +175,9 @@ rule start_dsa:
         runtime=20,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "start_dsa"
     shell:
         """
         touch {output.jobToIntvl}
@@ -311,7 +207,9 @@ rule add_dsa_args:
         runtime=10,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "add_dsa_args"
     shell:
         """
         grep -c "^" {input.intvl_list} > {output.nfiles}
@@ -329,8 +227,8 @@ rule dsa_bed_per_partition:
     input:
         indir                                   =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam                              =   rules.mark_read_bundles.output.outbam,
-        # ctrl_bam                                =   check_ctrl_bam_exists,
-        ctrl_bam                                =   rules.dilute_normal.output.diluted_control,
+        ctrl_bam                                =   get_control_bam,
+        # ctrl_bam                                =   rules.dilute_normal.output.diluted_control,
         coverage                                =   rules.partition_coverage.output.coverage, # "{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
         job                                     =   "{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.start", # something wrong with this job not existing...
         allJobs                                 =   rules.start_dsa.output.jobToIntvl,
@@ -354,7 +252,9 @@ rule dsa_bed_per_partition:
         runtime                                 =   60*10,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "dsa_bed_per_partition"
     shell:
         """
         # set path to file
@@ -423,6 +323,8 @@ rule start_varCall:
         # runtime=10,
         runtime=2,
     threads: 1
+    group:
+        "start_varCall"
     shell:
         """
         grep -c "^" {input.intvl_list} > {output.nfiles}
@@ -436,7 +338,7 @@ rule varCall_per_partition:
         nfiles                              =   rules.start_varCall.output.nfiles,
         indir                               =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam                          =   rules.mark_read_bundles.output.outbam,
-        ctrl_bam                            =   check_ctrl_bam_exists,
+        ctrl_bam                            =   get_control_bam,
         coverage                            =   rules.partition_coverage.output.coverage, # "{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
         job                                 =   "{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.start",
     output:
@@ -471,7 +373,9 @@ rule varCall_per_partition:
         runtime                             =   5*10,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "varCall_per_partition"
     shell:
         """
         # set path to file
@@ -527,7 +431,9 @@ rule start_indelCall:
         runtime                 =   2,
     threads: 1
     # conda:
-    #     "../envs/nanoseq_snakemake.yml"
+    #     "envs/nanoseq_snakemake.yml"
+    group:
+        "start_indelCall"
     shell:
         """
         grep -c "^" {input.intvl_list} > {output.nfiles}
@@ -540,7 +446,7 @@ rule indelCall_per_partition:
         dsa                     =   rules.dsa_bed_per_partition.output.coverage,
         indir                   =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam              =   rules.mark_read_bundles.output.outbam,
-        ctrl_bam                =   check_ctrl_bam_exists,
+        ctrl_bam                =   get_control_bam,
         coverage                =   rules.partition_coverage.output.coverage, # "{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
         job                     =   "{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.start",
         nfiles                  =   rules.start_indelCall.output.nfiles,
@@ -583,7 +489,9 @@ rule indelCall_per_partition:
         runtime                 =   60*15,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "indelCall_per_partition"
     shell:
         """
         # set path to file
@@ -627,12 +535,12 @@ rule indelCall_per_partition:
 
 # I should add options to specify the final sample name of the files we are analyzing
 # post
-postPath="{sample}.runNanoSeq/tmpNanoSeq/post/"
+# postPath="{sample}.runNanoSeq/tmpNanoSeq/post/"
 rule post:
     input:
         indir                               =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam                          =   rules.mark_read_bundles.output.outbam,
-        ctrl_bam                            =   check_ctrl_bam_exists,
+        ctrl_bam                            =   get_control_bam,
         snv_doneFile                        =   expand(indelPath_wJob+".done",job=jobs_partitioned,allow_missing=True),
         indel_doneFile                      =   expand(varPath+".done",job=jobs_partitioned,allow_missing=True),
         nfiles                              =   rules.start_indelCall.output.nfiles,
@@ -651,7 +559,9 @@ rule post:
         mem_mb                  =   5000,
         runtime                 =   120,
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        "envs/nanoseq_snakemake.yml"
+    group:
+        "post"
     shell:
         """
         cd {input.indir}
@@ -664,3 +574,4 @@ rule post:
         -R {params.fasta} \
         post
         """
+        

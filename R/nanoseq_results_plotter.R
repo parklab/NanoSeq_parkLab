@@ -78,6 +78,7 @@ if (length(args) == 3) {
                     15801067, 101628641, 73791042, 96335416, 115950255, 114180747, 82414099, 68090507, 13621251, 80004082,
                     64915540, 54055728, 86012414, 83421918, 112085858, 88336615, 12630597, 126566213, 119020255, 112827451,
                     108406418, 219915599);
+  sprintf("Using human genome trinucleotide frequencies. Total pyrimidine trinucleotides: %f\n", sum(genome_counts))
 }
 
 if (!dir.exists(dir_res)) {
