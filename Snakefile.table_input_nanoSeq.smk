@@ -61,6 +61,8 @@ CONTROL_RCMCD_OD_DIR = "control_duplex/"
 CONTROL_MARKED_OD_DIR = CONTROL_RCMCD_OD_DIR
 CONTROL_READBUNDLE_DIR = CONTROL_RCMCD_OD_DIR
 postPath="{sample}.runNanoSeq/tmpNanoSeq/post/"
+FINAL_SAMPLE_CRAM="FINAL_SAMPLE_CRAMs/SAMPLES/"
+FINAL_CONTROL_CRAM="FINAL_SAMPLE_CRAMs/CONTROLS/"
 PAIRED_ENDS = ["R1","R2"]
 
 
@@ -135,11 +137,11 @@ rule all:
         # specify_efficiencyOutput_samples,
         expand("SAMPLES/{sample}.txt",sample=SAMPLE),
         expand("CONTROLS/{control}.txt",control=CONTROL),
-        # # alignments
-        expand("aligned_bam/{sample}.bam",sample=SAMPLE),
-        expand("aligned_bam/{sample}.bam.bai",sample=SAMPLE),
-        expand("control_aligned_bam/{control}.bam",control=CONTROL),
-        expand("control_aligned_bam/{control}.bam.bai",control=CONTROL),
+        # # # alignments
+        # expand("aligned_bam/{sample}.bam",sample=SAMPLE),
+        # expand("aligned_bam/{sample}.bam.bai",sample=SAMPLE),
+        # expand("control_aligned_bam/{control}.bam",control=CONTROL),
+        # expand("control_aligned_bam/{control}.bam.bai",control=CONTROL),
         # samples' read-bundled BAMs
         expand("readBundle_duplex/{sample}.filtered.bam",sample=SAMPLE),
         expand("readBundle_duplex/{sample}.filtered.bam.bai",sample=SAMPLE),
@@ -158,6 +160,10 @@ rule all:
         expand(postPath+"results.muts.vcf.gz",sample=SAMPLE),
         # files to transfer
         # expand("{sample}.final_files_to_transfer.txt",sample=SAMPLE),
+        expand(FINAL_SAMPLE_CRAM+"{sample}.cram",sample=SAMPLE),
+        expand(FINAL_SAMPLE_CRAM+"{sample}.cram.crai",sample=SAMPLE),
+        expand(FINAL_CONTROL_CRAM+"{control}.cram",control=CONTROL),
+        expand(FINAL_CONTROL_CRAM+"{control}.cram.crai",control=CONTROL),
 
 
         #
@@ -218,4 +224,4 @@ include: "Snakefile.table_input.align_sample.smk"
 include: "Snakefile.table_input.align_control.smk"
 include: "Snakefile.table_input.run_nanoseq.smk"
 include: "Snakefile.table_input.a4s2_bam_stats.smk"
-# include: "Snakefile.table_input.list_final_files_to_transfer.smk"
+include: "Snakefile.table_input.list_final_files_to_transfer.smk"

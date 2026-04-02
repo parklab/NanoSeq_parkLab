@@ -59,9 +59,9 @@ rule align_controls:
     input:
         expand(rules.extract_control_tags.output,pe=PAIRED_ENDS,allow_missing=True),
     output: 
-        tempBam=temp("control_aligned_bam/{control}.unsorted.bam"),
-        sortedBam="control_aligned_bam/{control}.bam",
-        sortedBamIndex="control_aligned_bam/{control}.bam.bai"
+        tempSam=temp("control_aligned_bam/{control}.unsorted.sam"), # formerly .bam
+        # sortedBam="control_aligned_bam/{control}.bam",
+        # sortedBamIndex="control_aligned_bam/{control}.bam.bai"
     log:
         "logs/align_controls/{control}.log"
     params:
@@ -76,21 +76,14 @@ rule align_controls:
         """
         ulimit -c unlimited
         ulimit -n 8192
-        echo -e "Control: {wildcards.control}\nControl FASTQ 1: {input[0]}\nControl FASTQ 2: {input[1]}" >> {log}
-        # align the control FASTQ files to the reference genome and produce a BAM file that can be used for downstream analysis. we can use the control BAM file as a reference for the alignment if needed, or we can just align the control FASTQ files independently and then use the control BAM file for the downstream analysis. for now, let's just align the control FASTQ files independently and then use the control BAM file for the downstream analysis. this will allow us to easily modify the alignment parameters if needed without having to modify the entire workflow.
-        # sentieon bwa mem
+        # SENTIEON        
         sentieon \
         bwa mem \
         -t {threads} \
         -K 10000000 \
         -C \
         {config[fasta]} \
-        {input} | \
-        samtools view -@ {threads} -bS > {output.tempBam} || exit 1
-        
-        samtools sort -@ {threads} -o {output.sortedBam} {output.tempBam}
-        samtools index {output.sortedBam}
-
+        {input} > {output.tempSam} || exit 1
         """
 
         # control={wildcards.control}
@@ -102,13 +95,31 @@ rule align_controls:
         # samtools sort -@ {threads} -o {output[0]} {output[0]}
         # samtools index {output[0]} {output[1]}
 
+        # ulimit -c unlimited
+        # ulimit -n 8192
+        # echo -e "Control: {wildcards.control}\nControl FASTQ 1: {input[0]}\nControl FASTQ 2: {input[1]}" >> {log}
+        # # align the control FASTQ files to the reference genome and produce a BAM file that can be used for downstream analysis. we can use the control BAM file as a reference for the alignment if needed, or we can just align the control FASTQ files independently and then use the control BAM file for the downstream analysis. for now, let's just align the control FASTQ files independently and then use the control BAM file for the downstream analysis. this will allow us to easily modify the alignment parameters if needed without having to modify the entire workflow.
+        # # sentieon bwa mem
+        # sentieon \
+        # bwa mem \
+        # -t {threads} \
+        # -K 10000000 \
+        # -C \
+        # {config[fasta]} \
+        # {input} | \
+        # samtools view -@ {threads} -bS > {output.tempBam} || exit 1
+        
+        # samtools sort -@ {threads} -o {output.sortedBam} {output.tempBam}
+        # samtools index {output.sortedBam}
+
 
 rule prepare_RcMcOd_tags_control:
     input:
-        "control_aligned_bam/{control}.bam",
+        # "control_aligned_bam/{control}.bam",
+        rules.align_controls.output.tempSam,
     output:
         tmpdir=temp(directory("{control}_tmp/")),
-        outbam="control_duplex/{control}.od.bam"
+        outbam=temp("control_duplex/{control}.od.bam"),
     benchmark:
         "benchmarks/control_duplex/{control}.txt"
     log:
@@ -128,15 +139,24 @@ rule prepare_RcMcOd_tags_control:
         tmpdir={wildcards.control}_tmp
         mkdir -p $tmpdir
         echo -e "{wildcards.control}" >> {log}
-        bamsormadup inputformat=bam rcsupport=1 threads=1 tmpfile=$tmpdir/{wildcards.control} < {input} > {output.outbam}
+        bamsormadup inputformat=sam rcsupport=1 threads={threads} tmpfile=$tmpdir/{wildcards.control} < {input} > {output.outbam} 
+        # threads=1 to avoid multithreading issues with bamsormadup
         """
         # bamsormadup inputformat=sam rcsupport=1 threads={threads} < {input} > {output.outbam} 
+
+        # ulimit -c unlimited
+        # ulimit -n 8192
+        # tmpdir={wildcards.control}_tmp
+        # mkdir -p $tmpdir
+        # echo -e "{wildcards.control}" >> {log}
+        # bamsormadup inputformat=bam rcsupport=1 threads=1 tmpfile=$tmpdir/{wildcards.control} < {input} > {output.outbam}
+
 
 rule mark_optical_duplicates_control:
     input:
         rules.prepare_RcMcOd_tags_control.output.outbam
     output:
-        outbam="control_duplex/{control}.marked_od.bam",
+        outbam=temp("control_duplex/{control}.marked_od.bam"),
         metrics="control_duplex/{control}.mark_od_metrics.txt",
     benchmark:
         "benchmarks/mark_optical_duplicates_control/{control}.txt"

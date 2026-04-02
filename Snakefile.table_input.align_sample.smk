@@ -46,9 +46,9 @@ rule align_samples:
     input:
         expand(rules.extract_sample_tags.output,pe=PAIRED_ENDS,allow_missing=True),
     output: 
-        tempBam=temp("aligned_bam/{sample}.unosrted.bam"),
-        sortedBam="aligned_bam/{sample}.bam",
-        sortedBamIndex="aligned_bam/{sample}.bam.bai"
+        tempSam=temp("aligned_bam/{sample}.unosrted.sam"), # formerly .bam
+        # sortedBam="aligned_bam/{sample}.bam",
+        # sortedBamIndex="aligned_bam/{sample}.bam.bai"
     log:
         "logs/align_samples/{sample}.log"
     params:
@@ -64,30 +64,40 @@ rule align_samples:
         """
         ulimit -c unlimited
         ulimit -n 8192
-        # SENTIEON
-
+        # SENTIEON        
         sentieon \
         bwa mem \
         -t {threads} \
         -K 10000000 \
         -C \
         {config[fasta]} \
-        {input} | \
-        samtools view -@ {threads} -bS > {output.tempBam} || exit 1
-        
-        samtools sort -@ {threads} -o {output.sortedBam} {output.tempBam}
-        samtools index {output.sortedBam}
+        {input} > {output.tempSam} || exit 1
         """
+
+        # sentieon \
+        # bwa mem \
+        # -t {threads} \
+        # -K 10000000 \
+        # -C \
+        # {config[fasta]} \
+        # {input} | \
+        # samtools view -@ {threads} -bS > {output.tempBam} || exit 1
+        
+        # samtools sort -@ {threads} -o {output.sortedBam} {output.tempBam}
+        # samtools index {output.sortedBam}
+
+
 
         # control_bam=control_bam/${{control}}.diluted.ctrl.bam
         # control_bam_index=control_bam/${{control}}.diluted.ctrl.bai
 
 rule prepare_RcMcOd_tags:
     input:
-        "aligned_bam/{sample}.bam",
+        # "aligned_bam/{sample}.bam",
+        rules.align_samples.output.tempSam,
     output:
         tmpdir=temp(directory("{sample}_tmp/")),
-        outbam="rcMcOd_duplex/{sample}.od.bam"
+        outbam=temp("rcMcOd_duplex/{sample}.od.bam")
     benchmark:
         "benchmarks/prepare_RcMcOd_tags/{sample}.txt"
     log:
@@ -107,15 +117,23 @@ rule prepare_RcMcOd_tags:
         tmpdir={wildcards.sample}_tmp
         mkdir -p $tmpdir
         echo -e "{wildcards.sample}" >> {log}
-        bamsormadup inputformat=bam rcsupport=1 threads=1 tmpfile=$tmpdir/{wildcards.sample} < {input} > {output.outbam}
+        bamsormadup inputformat=sam rcsupport=1 threads={threads} tmpfile=$tmpdir/{wildcards.sample} < {input} > {output.outbam} 
+        # threads=1 to avoid multithreading issues with bamsormadup
         """
         # bamsormadup inputformat=sam rcsupport=1 threads={threads} < {input} > {output.outbam} 
+
+        # ulimit -c unlimited
+        # ulimit -n 8192
+        # tmpdir={wildcards.sample}_tmp
+        # mkdir -p $tmpdir
+        # echo -e "{wildcards.sample}" >> {log}
+        # bamsormadup inputformat=bam rcsupport=1 threads=1 tmpfile=$tmpdir/{wildcards.sample} < {input} > {output.outbam}
 
 rule mark_optical_duplicates:
     input:
         rules.prepare_RcMcOd_tags.output.outbam
     output:
-        outbam="rcMcOd_duplex/{sample}.marked_od.bam",
+        outbam=temp("rcMcOd_duplex/{sample}.marked_od.bam"),
         metrics="rcMcOd_duplex/{sample}.mark_od_metrics.txt",
     benchmark:
         "benchmarks/mark_optical_duplicates/{sample}.txt"

@@ -8,14 +8,14 @@
 #SBATCH -o ./%j.out.txt #stdout file
 #SBATCH -e ./%j.err.txt #stderr file
 
-config=$1
+CONFIG=$1
 
-if [[ $config == "" ]]; then
+if [[ $CONFIG == "" ]]; then
     echo -e "config was not specified. Defaulting to hg19"
-    config=config/grch37.yaml
+    CONFIG=config/grch37.yaml
 fi
 
-echo -e "Using config file $config"
+echo -e "Using config file $CONFIG"
 
 SNAKEFILE=Snakefile.table_input_nanoSeq.smk
 
@@ -29,10 +29,10 @@ fi
 
 echo -e "Unlocking Snakemake workflow $SNAKEFILE (if previously locked)..."
 
-snakemake --unlock --configfile $config -s $SNAKEFILE
+snakemake --unlock --configfile $CONFIG -s $SNAKEFILE
 
 echo "dry run to check for errors and get an estimate of the runtime..."
-snakemake -np --configfile $config -s $SNAKEFILE --cores 400 --rerun-incomplete --rerun-triggers mtime > runlogs/dry_run.txt
+snakemake -np --configfile $CONFIG -s $SNAKEFILE --cores 400 --rerun-incomplete --rerun-triggers mtime > runlogs/dry_run.txt
 
 echo "submitting job..."
 snakemake \
@@ -41,7 +41,7 @@ snakemake \
 --jobs 400 \
 --cores 400 \
 --rerun-triggers mtime \
---configfile $config \
+--configfile $CONFIG \
 -s $SNAKEFILE \
 --cluster 'sbatch -p park -A park_contrib -c {threads} --mem={resources.mem_mb} -t {resources.runtime} -o ./runlogs/slurm-%A.log' # \
 
