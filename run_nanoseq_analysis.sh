@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH -p park
-#SBATCH -A park_contrib
+#SBATCH -p priority
+#SBATCH -A park
 #SBATCH -t 0-120:00
 #SBATCH -n 1
 #SBATCH -N 1

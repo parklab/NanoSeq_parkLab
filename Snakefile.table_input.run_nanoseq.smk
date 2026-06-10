@@ -6,6 +6,36 @@ def get_control_bam(wildcards):
     control_bam = f"control_duplex/{control}.diluted.ctrl.bam"
     return control_bam
 
+
+# Retry-aware runtime helpers. Each rule's `resources.runtime` should be a
+# lambda over (wildcards, attempt) so that Snakemake's `--retries N` actually
+# requests a larger wall-clock from SLURM on subsequent attempts.
+def _get_dynamic_runtime(attempt, basetime, increment, label="rule"):
+    total = int(basetime + increment * (attempt - 1))
+    print(f"[runtime] attempt {attempt} for {label}: requesting {total} min (base={basetime}, +{increment}/attempt)")
+    return total
+
+def get_dynamic_runtime_efficiency(attempt):
+    return _get_dynamic_runtime(attempt, basetime=int(60*0.5), increment=60, label="check_efficiency")
+
+def get_dynamic_runtime_coverage(attempt):
+    return _get_dynamic_runtime(attempt, basetime=int(60*1/6), increment=60, label="coverage_histogram_controlBam")
+
+def get_dynamic_runtime_diag_coverage(attempt):
+    return _get_dynamic_runtime(attempt, basetime=60*2, increment=60, label="run_diagnostic_coverage")
+
+def get_dynamic_runtime_dsa(attempt):
+    return _get_dynamic_runtime(attempt, basetime=60*10, increment=60*4, label="dsa_bed_per_partition")
+
+def get_dynamic_runtime_varcall(attempt):
+    return _get_dynamic_runtime(attempt, basetime=5*10, increment=60, label="varCall_per_partition")
+
+def get_dynamic_runtime_indelcall(attempt):
+    return _get_dynamic_runtime(attempt, basetime=60*15, increment=60*4, label="indelCall_per_partition")
+
+def get_dynamic_runtime_post(attempt):
+    return _get_dynamic_runtime(attempt, basetime=120, increment=120, label="post")
+
 rule check_efficiency:
     input:
         duplex_bam=rules.mark_read_bundles.output.outbam,
@@ -24,10 +54,10 @@ rule check_efficiency:
         fasta=config["fasta"],
     resources:
         mem_mb=20000,
-        runtime=240*2,
+        runtime=lambda wildcards, attempt: get_dynamic_runtime_efficiency(attempt),
     threads: 20
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "check_efficiency"
     shell:
@@ -49,7 +79,7 @@ rule coverage_histogram_controlBam:
         ctrl_bam=get_control_bam,
     output:
         # coverage="cov/gIntervals.dat"
-        runNanoSeqDir=directory("{sample}.runNanoSeq"),
+        # runNanoSeqDir=directory("{sample}.runNanoSeq"),
         coverage=expand("{sample}.runNanoSeq/tmpNanoSeq/cov/{chroms}.done",chroms=CHROMS,allow_missing=True),
     benchmark:
         "benchmarks/coverage_histogram_controlBam/{sample}.txt"
@@ -57,12 +87,13 @@ rule coverage_histogram_controlBam:
         "logs/coverage_histogram_controlBam/{sample}.log"
     params: # a preset for the ultrashear or covaris libraries
         fasta=config["fasta"],
+        runNanoSeqDir = lambda wildcards: f"{wildcards.sample}.runNanoSeq",
     resources:
         mem_mb=10000,
-        runtime=240,
+        runtime=lambda wildcards, attempt: get_dynamic_runtime_coverage(attempt),
     threads: 10
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "coverage_histogram_controlBam"
     shell:
@@ -73,9 +104,9 @@ rule coverage_histogram_controlBam:
 
         # newDir="{wildcards.sample}.runNanoSeq/"
 
-        mkdir -p {output.runNanoSeqDir}
+        mkdir -p {params.runNanoSeqDir}
 
-        cd {output.runNanoSeqDir}
+        cd {params.runNanoSeqDir}
 
         runNanoSeq.py \
         -t {threads} \
@@ -88,11 +119,55 @@ rule coverage_histogram_controlBam:
 
         """
 
+# we can use the coverage diagnostic to figure out what percent of the reference genome was assessed. 
+rule run_diagnostic_coverage:
+    input:
+        coverage=expand("{sample}.runNanoSeq/tmpNanoSeq/cov/{chroms}.done",chroms=CHROMS,allow_missing=True),
+    output:
+        coverage="{sample}.runNanoSeq/tmpNanoSeq/diagnostic/{sample}.tsv",
+        coverage_table="{sample}.runNanoSeq/tmpNanoSeq/diagnostic/{sample}.bulk_coverage_diagnostic.logistic_pred.txt",
+        coverage_model="{sample}.runNanoSeq/tmpNanoSeq/diagnostic/{sample}.bulk_coverage_diagnostic.logistic_fit.rds",
+        threshold="{sample}.runNanoSeq/tmpNanoSeq/diagnostic/{sample}.bulk_coverage_diagnostic.threshold.txt",
+    benchmark:
+        "benchmarks/run_diagnostic_coverage/{sample}.txt"
+    log:
+        "logs/run_diagnostic_coverage/{sample}.log"
+    params: # a preset for the ultrashear or covaris libraries
+        fasta=config["fasta"],
+        maxCovAssess=20, # next time, set to 30 instead of 40. more time-efficient, and 30 is sufficient for estimating the coverage threshold.
+    resources:
+        mem_mb=10000,
+        runtime=lambda wildcards, attempt: get_dynamic_runtime_diag_coverage(attempt),
+    threads: 10
+    conda:
+        workflow.source_path("envs/nanoseq_snakemake.yml")
+    group:
+        "run_diagnostic_coverage"
+    shell:
+        """
+        PATH=$PATH:$PWD/bin/
+        
+        nanoseqDir={wildcards.sample}.runNanoSeq/tmpNanoSeq
+
+        for i in $(seq 0 1 {params.maxCovAssess}); do 
+            for j in $nanoseqDir/cov/*.gz; do 
+                zcat $j | awk -v threshold=$i '$NF/($3 - $2) >= threshold' | grep -c "^" | paste <(echo -e "$j\t$i") -
+            done
+        done > {output.coverage}
+
+        # Rscript that fits a logistic curve to the coverage diagnostic and estimates the minimum coverage to use.
+        outputName=$nanoseqDir/diagnostic/{wildcards.sample}.bulk_coverage_diagnostic
+        Rscript $PWD/R/estimate_bulk_min_cov.R \
+        {output.coverage} \
+        $outputName
+
+        """
+
 rule partition_coverage:
     input:
-        indir=rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam=rules.mark_read_bundles.output.outbam,
         ctrl_bam=get_control_bam,
+        histCoverage=expand("{sample}.runNanoSeq/tmpNanoSeq/cov/{chroms}.done",chroms=CHROMS,allow_missing=True),
     output:
         coverage="{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
     benchmark:
@@ -103,19 +178,21 @@ rule partition_coverage:
         fasta=config["fasta"],
         n_partitions=60,
         jobs=n_jobs_partitioned,
+        indir=lambda wildcards: f"{wildcards.sample}.runNanoSeq",
     resources:
         mem_mb=10000,
-        runtime=240,
+        # runtime=240,
+        runtime=5, # next time, set to 5 minutes instead of 4 hours. more time-efficient
     threads: 10
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "partition_coverage"
     shell:
         """
         PATH=$PATH:$PWD/bin/
 
-        cd {input.indir}
+        cd {params.indir}
 
         runNanoSeq.py \
         -t 1 \
@@ -131,7 +208,7 @@ rule list_intervals:
     input:
         intvl=expand("intervals/{interval}.intervals.list",interval=INTERVALS)
     output:
-        intvl_list=temp(".intervals.txt")
+        intvl_list=".intervals.txt"
     benchmark:
         "benchmarks/list_intervals/all.txt"
     log:
@@ -143,10 +220,11 @@ rule list_intervals:
         # jobs=n_jobs,
     resources:
         mem_mb=5000,
-        runtime=20,
+        # runtime=20,
+        runtime=20, # next time, set to 20 minutes instead of 20 minutes. more time-efficient
     threads: 1
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "list_intervals"
     shell:
@@ -172,10 +250,11 @@ rule start_dsa:
     #     "logs/start_dsa/all.log"
     resources:
         mem_mb=5000,
-        runtime=20,
+        # runtime=20,
+        runtime=5, # next time, set to 5 minutes instead of 20 minutes. more time-efficient
     threads: 1
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "start_dsa"
     shell:
@@ -193,6 +272,7 @@ rule add_dsa_args:
     # modified to add `nfiles` files
     input:
         intvl_list=rules.list_intervals.output.intvl_list,
+        jobToIntvl=rules.start_dsa.output.jobToIntvl,
     output:
         nfiles="{sample}.runNanoSeq/tmpNanoSeq/dsa/nfiles",
         argsJson="{sample}.runNanoSeq/tmpNanoSeq/dsa/args.json",
@@ -204,10 +284,11 @@ rule add_dsa_args:
         "logs/add_dsa_args/{sample}.log"
     resources:
         mem_mb=5000,
-        runtime=10,
+        # runtime=10,
+        runtime=2, # next time, set to 2 minutes instead of 10 minutes. more time-efficient
     threads: 1
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "add_dsa_args"
     shell:
@@ -225,7 +306,6 @@ rule add_dsa_args:
 # {"out": ".", "index": null, "max_index": null, "threads": 300, "ref": "/n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh37d5/human_g1k_v37_decoy.fasta", "normal": "../control_bam/S11239_BA9_NeuN_0_05fmol_CKDL250013506-1A_22T3K2LT4_L8.ctrl.bam", "duplex": "../readBundle_duplex/S11239_BA9_NeuN_0_05fmol_CKDL250013506-1A_22T3K2LT4_L8.filtered.bam", "subcommand": "dsa", "snp": "../test/SNP.sorted.bed.gz", "mask": "../test/NOISE.sorted.bed.gz", "d": 2, "q": 30, "no_test": false}
 rule dsa_bed_per_partition:
     input:
-        indir                                   =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam                              =   rules.mark_read_bundles.output.outbam,
         ctrl_bam                                =   get_control_bam,
         # ctrl_bam                                =   rules.dilute_normal.output.diluted_control,
@@ -245,14 +325,14 @@ rule dsa_bed_per_partition:
         fasta                                   =   config["fasta"],
         snp                                     =   SNP,
         noise                                   =   NOISE,
+        indir                                   =   lambda wildcards: f"{wildcards.sample}.runNanoSeq",
         # jobs=n_jobs,
     resources:
         mem_mb                                  =   5000,
-        # runtime=240,
-        runtime                                 =   60*10,
+        runtime                                 =   lambda wildcards, attempt: get_dynamic_runtime_dsa(attempt),
     threads: 1
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "dsa_bed_per_partition"
     shell:
@@ -272,7 +352,7 @@ rule dsa_bed_per_partition:
         endPos=$(echo -e $intvl | cut -d'_' -f3)
 
         # navigate to output directory
-        cd {input.indir}
+        cd {params.indir}
         
         echo -e "running dsa..."
         dsa \
@@ -336,11 +416,11 @@ rule varCall_per_partition:
     input:
         dsa                                 =   rules.dsa_bed_per_partition.output.coverage,
         nfiles                              =   rules.start_varCall.output.nfiles,
-        indir                               =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam                          =   rules.mark_read_bundles.output.outbam,
         ctrl_bam                            =   get_control_bam,
         coverage                            =   rules.partition_coverage.output.coverage, # "{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
         job                                 =   "{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.start",
+        min_num_bulkReads_total_file        =   rules.run_diagnostic_coverage.output.threshold, # formerly 12 -- empirically assessed # should probably be 6, but reducing it all the way to 0 so that we can use external SNP filters
     output:
        coverage                             =   varPath+".cov.bed.gz",
        var                                  =   varPath+".var",
@@ -364,16 +444,14 @@ rule varCall_per_partition:
         read_length_post_5prime_trimming    =   144,
         max_bulk_vaf                        =   0.02, # 0.01, # 0.01 may be way too strict
         max_cycle_num                       =   8,
-        min_num_bulkReads_total             =   6, # formerly 12 -- empirically assessed # should probably be 6, but reducing it all the way to 0 so that we can use external SNP filters
+        # min_num_bulkReads_total             =   6, # formerly 12 -- empirically assessed # should probably be 6, but reducing it all the way to 0 so that we can use external SNP filters
+        indir                                   =   lambda wildcards: f"{wildcards.sample}.runNanoSeq",
     resources:
-        # mem_mb                              =   5000,
         mem_mb                              =   5000,
-        # runtime=60,
-        # runtime=10,
-        runtime                             =   5*10,
+        runtime                             =   lambda wildcards, attempt: get_dynamic_runtime_varcall(attempt),
     threads: 1
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "varCall_per_partition"
     shell:
@@ -381,8 +459,16 @@ rule varCall_per_partition:
         # set path to file
         PATH=$PATH:$PWD/bin/
 
+        # # get the threshold for min_num_bulkReads_total from the output of the coverage diagnostic
+        min_num_bulkReads_total=$(cut -f1 {input.min_num_bulkReads_total_file} | tail -1)
+        echo -e "Using a threshold of $min_num_bulkReads_total for min_num_bulkReads_total"
+
         # navigate to output directory
-        cd {input.indir}
+        cd {params.indir}
+
+        # for segmentation faults
+        ulimit -c unlimited
+        ulimit -s unlimited
 
         # run variant caller
         variantcaller \
@@ -403,10 +489,11 @@ rule varCall_per_partition:
         -r {params.read_length_post_5prime_trimming} \
         -v {params.max_bulk_vaf} \
         -x {params.max_cycle_num} \
-        -z {params.min_num_bulkReads_total} &&
+        -z $min_num_bulkReads_total &&
         touch ../{output.doneFile}
         echo -e "variant calling for {wildcards.job} is done"
         """
+        # -z {params.min_num_bulkReads_total} &&
 
 # Indel calling
 indelPath="{sample}.runNanoSeq/tmpNanoSeq/indel"
@@ -428,10 +515,10 @@ rule start_indelCall:
     resources:
         mem_mb                  =   5000,
         # runtime                 =   10,
-        runtime                 =   2,
+        runtime                 =   10,
     threads: 1
     # conda:
-    #     "envs/nanoseq_snakemake.yml"
+    #     workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "start_indelCall"
     shell:
@@ -444,7 +531,6 @@ indelPath_wJob=indelPath+"/{job}"
 rule indelCall_per_partition:
     input:
         dsa                     =   rules.dsa_bed_per_partition.output.coverage,
-        indir                   =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam              =   rules.mark_read_bundles.output.outbam,
         ctrl_bam                =   get_control_bam,
         coverage                =   rules.partition_coverage.output.coverage, # "{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
@@ -472,6 +558,7 @@ rule indelCall_per_partition:
         max_frac_clips          =   0,
         trim_from_3p_at_pos     =   135,
         trim_from_5p_at_pos     =   10,
+        indir                   =   lambda wildcards: f"{wildcards.sample}.runNanoSeq",
         ## FROM THE SCALEUP EXPERIMENT
         # max_frac_clips          =   0.02,
         # max_bulk_vaf            =   0.2,
@@ -484,12 +571,10 @@ rule indelCall_per_partition:
         # trim_from_5p_at_pos     =   8, # DEFAULT FROM `runNanoSeq.py`
     resources:
         mem_mb                  =   20000,
-        # runtime=120,
-        # runtime                 =   480,
-        runtime                 =   60*15,
+        runtime                 =   lambda wildcards, attempt: get_dynamic_runtime_indelcall(attempt),
     threads: 1
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "indelCall_per_partition"
     shell:
@@ -498,7 +583,7 @@ rule indelCall_per_partition:
         PATH=$PATH:$PWD/bin/
 
         # navigate to output directory
-        cd {input.indir}
+        cd {params.indir}
 
         echo -e "starting indel call for job #{wildcards.job}"
         # indel call step 1
@@ -538,7 +623,6 @@ rule indelCall_per_partition:
 # postPath="{sample}.runNanoSeq/tmpNanoSeq/post/"
 rule post:
     input:
-        indir                               =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
         duplex_bam                          =   rules.mark_read_bundles.output.outbam,
         ctrl_bam                            =   get_control_bam,
         snv_doneFile                        =   expand(indelPath_wJob+".done",job=jobs_partitioned,allow_missing=True),
@@ -554,17 +638,18 @@ rule post:
         "logs/post/{sample}.log"
     params:
         fasta=config["fasta"],
+        indir=lambda wildcards: f"{wildcards.sample}.runNanoSeq",
     threads: 10
     resources:
         mem_mb                  =   5000,
-        runtime                 =   120,
+        runtime                 =   lambda wildcards, attempt: get_dynamic_runtime_post(attempt),
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "post"
     shell:
         """
-        cd {input.indir}
+        cd {params.indir}
         mkdir -p ./tmpNanoSeq/post
         touch ./tmpNanoSeq/post/args.json
         runNanoSeq.py \
@@ -574,4 +659,97 @@ rule post:
         -R {params.fasta} \
         post
         """
+
+# SUMMARY_RESULT_FILES = ["burdens", "callvsqpos", "coverage", "pyrvsmask", "readbundles"]
+rule annotate_post_csv_with_interval:
+    input:
+        variants                            =   postPath+"results.muts.vcf.gz",
+    output:
+        new_burden                          = postPath+"burdens.annotated.tsv",
+        new_callvsqpos                      = postPath+"callvsqpos.annotated.tsv",
+        new_coverage                        = postPath+"coverage.annotated.tsv",
+        new_pyrvsmask                       = postPath+"pyrvsmask.annotated.tsv",
+        new_readbundles                     = postPath+"readbundles.annotated.tsv",
+        # annotated_files                     =   expand(postPath+"{summary_results}.annotated.tsv",summary_results=SUMMARY_RESULT_FILES),
+        doneFile                            =   postPath+"1.annotate_interval.done",
+    benchmark:
+        "benchmarks/post/{sample}.txt"
+    log:
+        "logs/post/{sample}.log"
+    params:
+        fasta=config["fasta"],
+        indir=lambda wildcards: f"{wildcards.sample}.runNanoSeq",
+    threads: 10
+    resources:
+        mem_mb                  =   5000,
+        runtime                 =   lambda wildcards, attempt: get_dynamic_runtime_post(attempt),
+    conda:
+        workflow.source_path("envs/nanoseq_snakemake.yml")
+    group:
+        "post"
+    shell:
+        """
+        cd {params.indir}
+        postDir="./tmpNanoSeq/post"
+        varDir="./tmpNanoSeq/var"
+        dsaDir="./tmpNanoSeq/dsa"
+
+        new_burdens=$postDir"/burdens.annotated.tsv"
+        new_callvsqpos=$postDir"/callvsqpos.annotated.tsv"
+        new_coverage=$postDir"/coverage.annotated.tsv"
+        new_pyrvsmask=$postDir"/pyrvsmask.annotated.tsv"
+        new_readbundles=$postDir"/readbundles.annotated.tsv"
         
+        paste <(head -1 $postDir/burdens.csv) <(echo -e "intvl") | sed "s/,/\t/g" > $new_burdens
+        paste <(head -1 $postDir/callvsqpos.csv) <(echo -e "intvl") | sed "s/,/\t/g" > $new_callvsqpos
+        paste <(head -1 $postDir/coverage.csv) <(echo -e "intvl") | sed "s/,/\t/g" > $new_coverage
+        paste <(head -1 $postDir/pyrvsmask.csv) <(echo -e "intvl") | sed "s/,/\t/g" > $new_pyrvsmask
+        paste <(head -1 $postDir/readbundles.csv) <(echo -e "intvl") | sed "s/,/\t/g" > $new_readbundles
+
+        for i in $varDir/*.var; do
+            intvlChunk=$(basename $i)
+            intvlChunk=${{intvlChunk%.var}}
+            dsaIntvlChunk=$(cat $dsaDir/$intvlChunk.start)
+            grep -s "Burdens" $i | cut -f2- | awk -v chunk=$dsaIntvlChunk 'BEGIN {{FS=OFS="\t"}} {{print $0,chunk}}' >> $new_burdens
+            grep -s "CallVsQpos" $i | cut -f2- | awk -v chunk=$dsaIntvlChunk 'BEGIN {{FS=OFS="\t"}} {{print $0,chunk}}' >> $new_callvsqpos
+            grep -s "Coverage" $i | cut -f2- | awk -v chunk=$dsaIntvlChunk 'BEGIN {{FS=OFS="\t"}} {{print $0,chunk}}' >> $new_coverage
+            grep -s "PyrVsMask" $i | cut -f2- | awk -v chunk=$dsaIntvlChunk 'BEGIN {{FS=OFS="\t"}} {{print $0,chunk}}' >> $new_pyrvsmask
+            grep -s "ReadBundles" $i | cut -f2- | awk -v chunk=$dsaIntvlChunk 'BEGIN {{FS=OFS="\t"}} {{print $0,chunk}}' >> $new_readbundles
+        done
+
+        touch $postDir"/1.annotate_interval.done"
+        """
+
+# rule filter_keep_passing_remove_likely_germline:
+#     input:
+#         variants                            =   postPath+"results.muts.vcf.gz",
+#         indels                              =   postPath+"results.indels.vcf.gz",
+#     output:
+#         variants                            =   postPath+"results.muts.remove_noise_remove_bulkNM0_keepPass.vcf.gz",
+#         indels                              =   postPath+"results.indels.remove_noise_remove_bulkNM0_keepPass.vcf.gz",
+#     benchmark:
+#         "benchmarks/post/{sample}.txt"
+#     log:
+#         "logs/post/{sample}.log"
+#     params:
+#         fasta=config["fasta"],
+#         noise_wgns=config["noise_wgns"],
+#         snp_wgns=config["snp_wgns"],
+#         gnomad=config["gnomad"],
+#         dbsnp=config["dbsnp"],
+#     threads: 10
+#     resources:
+#         mem_mb                  =   5000,
+#         runtime                 =   120,
+#     conda:
+#         workflow.source_path("envs/nanoseq_snakemake.yml")
+#     group:
+#         "post"
+#     shell:
+#         """
+#         # here, filter out variants that might fall within noise and snp masks, just in case you accidentally ran rens
+#         # also overlap mutations with gnomAD and retain the gnomAD AFs
+#         # keep PASS and non-PASS mutations so that we can separately model the rate of overlap
+#         """
+
+# # add a workflow here to call germline mutations from control BAM, check if they occur within the covered regions (at a4s2), and determine if they are present within the NanoSeq BAMs

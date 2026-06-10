@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -p park
 #SBATCH -A park_contrib
-#SBATCH -t 0-120:00
+#SBATCH -t 0-96:00
 #SBATCH -n 1
 #SBATCH -N 1
 #SBATCH --mem=8G
@@ -12,7 +12,7 @@ CONFIG=$1
 
 if [[ $CONFIG == "" ]]; then
     echo -e "config was not specified. Defaulting to hg19"
-    CONFIG=config/grch37.yaml
+    CONFIG=config/grch38.yaml
 fi
 
 echo -e "Using config file $CONFIG"
@@ -31,15 +31,16 @@ echo -e "Unlocking Snakemake workflow $SNAKEFILE (if previously locked)..."
 
 snakemake --unlock --configfile $CONFIG -s $SNAKEFILE
 
-echo "dry run to check for errors and get an estimate of the runtime..."
-snakemake -np --configfile $CONFIG -s $SNAKEFILE --cores 400 --rerun-incomplete --rerun-triggers mtime > runlogs/dry_run.txt
+# # echo "dry run to check for errors and get an estimate of the runtime..."
+# snakemake -np --configfile $CONFIG -s $SNAKEFILE --cores 400 --rerun-incomplete --rerun-triggers mtime > runlogs/dry_run.txt
 
 echo "submitting job..."
 snakemake \
 --keep-going \
 --rerun-incomplete \
---jobs 400 \
---cores 400 \
+--jobs 500 \
+--cores 500 \
+--retries 3 \
 --rerun-triggers mtime \
 --configfile $CONFIG \
 -s $SNAKEFILE \

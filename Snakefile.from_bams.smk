@@ -18,7 +18,8 @@ print(config)
 
 module nanoseq:
     snakefile:
-        "workflows/Snakefile.testSample_bam.ctrlSample_bam.smk"
+        # "workflows/Snakefile.testSample_bam.ctrlSample_bam.smk"
+        "Snakefile.testSample_bam.ctrlSample_bam.table_input.smk"
     config: config
 use rule * from nanoseq as run_nanoseq_*
 

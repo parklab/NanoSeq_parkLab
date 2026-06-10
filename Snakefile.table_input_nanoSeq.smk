@@ -16,15 +16,10 @@ if not os.path.exists("input.tsv"):
     raise ValueError("input.tsv file not found. Please provide or link a valid input.tsv file.")
 
 inTable = pd.read_csv("input.tsv",sep="\t",header=0)
-print("Input table:")
-print(inTable)
-# DONOR = set(inTable["Donor"].values)
+# print("Input table:")
+# print(inTable)
 SAMPLE = set(inTable["TestFastqID"].values)
 CONTROL = set(inTable["ControlFastqID"].values)
-
-# print(DONOR)
-# print(SAMPLE)
-# print(CONTROL)
 
 INTERVALS, = glob_wildcards("intervals/{interval}.intervals.list")
 n_jobs_partitioned = len(INTERVALS)
@@ -61,9 +56,27 @@ CONTROL_RCMCD_OD_DIR = "control_duplex/"
 CONTROL_MARKED_OD_DIR = CONTROL_RCMCD_OD_DIR
 CONTROL_READBUNDLE_DIR = CONTROL_RCMCD_OD_DIR
 postPath="{sample}.runNanoSeq/tmpNanoSeq/post/"
+diagnosticPath="{sample}.runNanoSeq/tmpNanoSeq/diagnostic/"
+covPath="{sample}.runNanoSeq/tmpNanoSeq/cov/"
 FINAL_SAMPLE_CRAM="FINAL_SAMPLE_CRAMs/SAMPLES/"
 FINAL_CONTROL_CRAM="FINAL_SAMPLE_CRAMs/CONTROLS/"
 PAIRED_ENDS = ["R1","R2"]
+SUMMARY_RESULT_FILES = ["burdens", "callvsqpos", "coverage", "pyrvsmask", "readbundles"]
+
+# IF CONFIG SPECIFIES, WE WILL RUN COMPRESSION FUNCTION
+run_compression = config.get("run_compression",False)
+if run_compression:
+    print("CONFIG SPECIFIES TO RUN COMPRESSION FUNCTION. FINAL CRAM FILES WILL BE GENERATED.")
+else:
+    print("CONFIG SPECIFIES NOT TO RUN COMPRESSION FUNCTION. FINAL CRAM FILES WILL NOT BE GENERATED.")
+
+# IF CONFIG SPECIFIES, WE WILL generate BAMs with just a4s2 reads for ease of visualization
+isolate_a4s2 = config.get("isolate_a4s2",False)
+if isolate_a4s2:
+    print("CONFIG SPECIFIES TO ISOLATE A4S2 READS. FINAL BAM FILES WILL BE GENERATED.")
+else:
+    print("CONFIG SPECIFIES NOT TO ISOLATE A4S2 READS. FINAL BAM FILES WILL NOT BE GENERATED.")
+
 
 
 # # FUNCTIONS TO DETERMINE WHICH SAMPLES TO RUN, BASED ON EXISTENCE OF CONTROL FASTQS
@@ -129,19 +142,9 @@ PAIRED_ENDS = ["R1","R2"]
 #
 rule all:
     input:
-        # specify_final_sample_txt,
-        # specify_final_control_txt,
-        # specify_finalBAM_samples,
-        # specify_finalBAM_controls,
-        # specify_final_nanoseqOutput_samples,
-        # specify_efficiencyOutput_samples,
+        # specification of samples
         expand("SAMPLES/{sample}.txt",sample=SAMPLE),
         expand("CONTROLS/{control}.txt",control=CONTROL),
-        # # # alignments
-        # expand("aligned_bam/{sample}.bam",sample=SAMPLE),
-        # expand("aligned_bam/{sample}.bam.bai",sample=SAMPLE),
-        # expand("control_aligned_bam/{control}.bam",control=CONTROL),
-        # expand("control_aligned_bam/{control}.bam.bai",control=CONTROL),
         # samples' read-bundled BAMs
         expand("readBundle_duplex/{sample}.filtered.bam",sample=SAMPLE),
         expand("readBundle_duplex/{sample}.filtered.bam.bai",sample=SAMPLE),
@@ -153,17 +156,22 @@ rule all:
         expand("control_duplex/{control}.diluted.ctrl.bam.bai",control=CONTROL),
         # nanoseq efficiency
         expand("efficiency/{sample}.tsv",sample=SAMPLE),
-        # rb-isolated BAM
-        expand("a4s2_bundles/{sample}.a4s2.bam",sample=SAMPLE),
-        expand("a4s2_bundles/{sample}.a4s2.bam.bai",sample=SAMPLE),
+        # coverage threshold
+        expand(diagnosticPath+"{sample}.bulk_coverage_diagnostic.logistic_pred.txt",sample=SAMPLE),
+        # coverage
+        expand(covPath+"{chroms}.done",sample=SAMPLE,chroms=CHROMS),
         # nanoseq post
         expand(postPath+"results.muts.vcf.gz",sample=SAMPLE),
+        expand(postPath+"{summary_results}.annotated.tsv",sample=SAMPLE,summary_results=SUMMARY_RESULT_FILES),
+        # rb-isolated BAM
+        expand("a4s2_bundles/{sample}.a4s2.bam",sample=SAMPLE) if isolate_a4s2 else [],
+        expand("a4s2_bundles/{sample}.a4s2.bam.bai",sample=SAMPLE) if isolate_a4s2 else [],
         # files to transfer
         # expand("{sample}.final_files_to_transfer.txt",sample=SAMPLE),
-        expand(FINAL_SAMPLE_CRAM+"{sample}.cram",sample=SAMPLE),
-        expand(FINAL_SAMPLE_CRAM+"{sample}.cram.crai",sample=SAMPLE),
-        expand(FINAL_CONTROL_CRAM+"{control}.cram",control=CONTROL),
-        expand(FINAL_CONTROL_CRAM+"{control}.cram.crai",control=CONTROL),
+        expand(FINAL_SAMPLE_CRAM+"{sample}.cram",sample=SAMPLE) if run_compression else [],
+        expand(FINAL_SAMPLE_CRAM+"{sample}.cram.crai",sample=SAMPLE) if run_compression else [],
+        expand(FINAL_CONTROL_CRAM+"{control}.cram",control=CONTROL) if run_compression else [],
+        expand(FINAL_CONTROL_CRAM+"{control}.cram.crai",control=CONTROL) if run_compression else [],
 
 
         #
@@ -197,6 +205,12 @@ rule associate_sample_control:
         "SAMPLES/{sample}.txt",
     log:
         "logs/associate_sample_control/{sample}.log",
+    resources:
+        mem_mb=2000,
+        runtime=5,
+    threads: 1
+    group:
+        "associate_sample_control"
     run:
         inTable = pd.read_csv("input.tsv",sep="\t",header=0)
         donor = inTable.loc[inTable["TestFastqID"]==wildcards.sample,"Donor"].values[0]
@@ -212,6 +226,12 @@ rule associate_control_donor:
         "CONTROLS/{control}.txt",
     log:
         "logs/associate_control_donor/{control}.log",
+    resources:
+        mem_mb=2000,
+        runtime=5,
+    threads: 1
+    group:
+        "associate_control_donor"
     run:
         inTable = pd.read_csv("input.tsv",sep="\t",header=0)
         donor = inTable.loc[inTable["ControlFastqID"]==wildcards.control,"Donor"].values[0]
@@ -220,8 +240,9 @@ rule associate_control_donor:
             f.write("Donor\t" + donor + "\n")
             f.write("Control\t" + control + "\n")
 
+# temporary, to help with jobs
 include: "Snakefile.table_input.align_sample.smk"
 include: "Snakefile.table_input.align_control.smk"
 include: "Snakefile.table_input.run_nanoseq.smk"
-include: "Snakefile.table_input.a4s2_bam_stats.smk"
-include: "Snakefile.table_input.list_final_files_to_transfer.smk"
+# include: "Snakefile.table_input.a4s2_bam_stats.smk"
+# include: "Snakefile.table_input.list_final_files_to_transfer.smk"

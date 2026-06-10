@@ -13,7 +13,7 @@ rule extract_sample_tags:
     input:
         get_sample_fastq
     output:
-        expand("extracted_sample_tags_duplex_fq/{sample}.{pe}.fastq.gz",pe=PAIRED_ENDS,allow_missing=True)
+        temp(expand("extracted_sample_tags_duplex_fq/{sample}.{pe}.fastq.gz",pe=PAIRED_ENDS,allow_missing=True))
     # when: check_if_fastq_exists # SNAKEMAKE V8+
     benchmark:
         "benchmarks/extract_sample_tags/{sample}.txt"
@@ -46,7 +46,7 @@ rule align_samples:
     input:
         expand(rules.extract_sample_tags.output,pe=PAIRED_ENDS,allow_missing=True),
     output: 
-        tempSam=temp("aligned_bam/{sample}.unosrted.sam"), # formerly .bam
+        tempSam=temp("aligned_bam/{sample}.unsorted.sam"), # formerly .bam
         # sortedBam="aligned_bam/{sample}.bam",
         # sortedBamIndex="aligned_bam/{sample}.bam.bai"
     log:
@@ -134,6 +134,7 @@ rule mark_optical_duplicates:
         rules.prepare_RcMcOd_tags.output.outbam
     output:
         outbam=temp("rcMcOd_duplex/{sample}.marked_od.bam"),
+        outbai=temp("rcMcOd_duplex/{sample}.marked_od.bam.bai"),
         metrics="rcMcOd_duplex/{sample}.mark_od_metrics.txt",
     benchmark:
         "benchmarks/mark_optical_duplicates/{sample}.txt"

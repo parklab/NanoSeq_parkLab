@@ -38,7 +38,7 @@ rule indelCall_per_partition_w_ssIndel:
         runtime                 =   60*15,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         # set path to file

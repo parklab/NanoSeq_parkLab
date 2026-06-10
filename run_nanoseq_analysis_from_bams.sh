@@ -28,9 +28,11 @@ snakemake \
 --keep-going \
 --rerun-incomplete \
 --jobs 400 \
+--cores 400 \
 --rerun-triggers mtime \
 -s Snakefile.from_bams.smk \
 --configfile $config \
+--retries 3 \
 --cluster 'sbatch -p park -A park_contrib -c {threads} --mem={resources.mem_mb} -t {resources.runtime} -o ./runlogs/slurm-%A.log' # \
 
 

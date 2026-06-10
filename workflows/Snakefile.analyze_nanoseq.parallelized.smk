@@ -52,7 +52,7 @@ if config["dilute_ctrl_bam"]:
             runtime=240,
         threads: 1
         conda:
-            "../envs/nanoseq_snakemake.yml"
+            workflow.source_path("../envs/nanoseq_snakemake.yml")
         shell:
             """
             PATH=$PATH:$PWD/bin/
@@ -77,7 +77,7 @@ else:
             runtime=240,
         threads: 1
         conda:
-            "../envs/nanoseq_snakemake.yml"
+            workflow.source_path("../envs/nanoseq_snakemake.yml")
         shell:
             """
             cd control_bam
@@ -104,7 +104,7 @@ else:
 #         runtime=240,
 #     threads: 1
 #     conda:
-#         "../envs/nanoseq_snakemake.yml"
+#         workflow.source_path("../envs/nanoseq_snakemake.yml")
 #     shell:
 #         """
 #         PATH=$PATH:$PWD/bin/
@@ -133,7 +133,7 @@ rule check_efficiency:
         runtime=240*2,
     threads: 20
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         PATH=$PATH:$PWD/bin/:$PWD/perl/
@@ -174,7 +174,7 @@ rule coverage_histogram_controlBam:
         runtime=240,
     threads: 10
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         PATH=$PATH:$PWD/bin/
@@ -218,7 +218,7 @@ rule partition_coverage:
         runtime=240,
     threads: 10
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         PATH=$PATH:$PWD/bin/
@@ -254,7 +254,7 @@ rule list_intervals:
         runtime=20,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         ls -1 {input.intvl} | sed "s/_/\t/g" | sort -k1,1 -k2,2n | sed "s/\t/_/g" > {output.intvl_list}
@@ -281,7 +281,7 @@ rule start_dsa:
         runtime=20,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         touch {output.jobToIntvl}
@@ -311,7 +311,7 @@ rule add_dsa_args:
         runtime=10,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         grep -c "^" {input.intvl_list} > {output.nfiles}
@@ -354,7 +354,7 @@ rule dsa_bed_per_partition:
         runtime                                 =   60*10,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         # set path to file
@@ -471,7 +471,7 @@ rule varCall_per_partition:
         runtime                             =   5*10,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         # set path to file
@@ -527,7 +527,7 @@ rule start_indelCall:
         runtime                 =   2,
     threads: 1
     # conda:
-    #     "../envs/nanoseq_snakemake.yml"
+    #     workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         grep -c "^" {input.intvl_list} > {output.nfiles}
@@ -583,7 +583,7 @@ rule indelCall_per_partition:
         runtime                 =   60*15,
     threads: 1
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         # set path to file
@@ -651,7 +651,7 @@ rule post:
         mem_mb                  =   5000,
         runtime                 =   120,
     conda:
-        "../envs/nanoseq_snakemake.yml"
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
     shell:
         """
         cd {input.indir}

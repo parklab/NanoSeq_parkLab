@@ -3,9 +3,10 @@ fasta: /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/GRCh38_smaht/hg38_no_alt.fa
 dbsnp: /n/data1/hms/dbmi/park/SOFTWARE/GATK/GATK-bundle/dbsnp_147_hg38_common_all_20160601.vcf.gz
 control_is_undiluted_nanoseq:
 dilute_ctrl_bam: True
-restriction_enzyme_nanoseq: True
+restriction_enzyme_nanoseq:
 noise_rens: ../test/from_abascal/NOISE_GRCh38.rens.bed.gz
 snp_rens: ../test/from_abascal/SNP_GRCh38.rens.bed.gz
 noise_wgns: ../test/from_abascal/NOISE_GRCh38.wgns.bed.gz
 snp_wgns: ../test/from_abascal/SNP_GRCh38.wgns.bed.gz
 undiulted_nanoseq_bam_ctrl: 1
+gnomad: /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/hg38/gatk-best-practices_somatic-hg38/af-only-gnomad.hg38.vcf.gz

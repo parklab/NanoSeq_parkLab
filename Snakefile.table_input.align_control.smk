@@ -26,7 +26,7 @@ rule extract_control_tags:
         # expand(get_control_fastq,pe=PAIRED_ENDS,allow_missing=True)
         get_control_fastq
     output:
-        expand("extracted_control_tags_duplex_fq/{control}.{pe}.fastq.gz",pe=PAIRED_ENDS,allow_missing=True)
+        temp(expand("extracted_control_tags_duplex_fq/{control}.{pe}.fastq.gz",pe=PAIRED_ENDS,allow_missing=True))
     # when: check_if_fastq_exists
     benchmark:
         "benchmarks/extract_control_tags/{control}.txt"
@@ -157,6 +157,7 @@ rule mark_optical_duplicates_control:
         rules.prepare_RcMcOd_tags_control.output.outbam
     output:
         outbam=temp("control_duplex/{control}.marked_od.bam"),
+        outbai=temp("control_duplex/{control}.marked_od.bam.bai"),
         metrics="control_duplex/{control}.mark_od_metrics.txt",
     benchmark:
         "benchmarks/mark_optical_duplicates_control/{control}.txt"
@@ -236,7 +237,7 @@ rule dilute_normal:
         runtime=240,
     threads: 1
     conda:
-        "envs/nanoseq_snakemake.yml"
+        workflow.source_path("envs/nanoseq_snakemake.yml")
     group:
         "dilute_normal"
     shell:
