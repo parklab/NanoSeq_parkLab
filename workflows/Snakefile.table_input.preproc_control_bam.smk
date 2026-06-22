@@ -12,6 +12,44 @@ def get_control_input_bam(wildcards):
     return control_bam
 
 
+# ControlType drives how the matched normal is prepared (see Sanger NanoSeq docs):
+#   "Undiluted NanoSeq" -> the normal is itself a NanoSeq library, so it must be
+#       read-bundled (bamaddreadbundles) and deduplicated to one read-pair per
+#       bundle (randomreadinbundle) to produce a "neat" normal.
+#   "Standard WGS"      -> the normal is an ordinary bulk WGS BAM. It has no
+#       read-bundle structure (bamaddreadbundles would drop every read), so it is
+#       used directly as the NanoSeq -A track; at most it needs coordinate-sort +
+#       duplicate-marking + index, which production (e.g. Sentieon) BAMs already have.
+CONTROL_TYPE_NANOSEQ = "Undiluted NanoSeq"
+CONTROL_TYPE_WGS = "Standard WGS"
+_VALID_CONTROL_TYPES = {CONTROL_TYPE_NANOSEQ, CONTROL_TYPE_WGS}
+
+def get_control_type(control):
+    inTable = pd.read_csv("input.tsv", sep="\t", header=0)
+    if "ControlType" not in inTable.columns:
+        # Back-compat: no column -> treat every control as an undiluted NanoSeq
+        # library (the historical default of this workflow).
+        return CONTROL_TYPE_NANOSEQ
+    vals = inTable.loc[inTable["ControlBamID"] == control, "ControlType"].values
+    if len(vals) == 0:
+        raise ValueError(f"Control {control} not found in input.tsv ControlBamID column")
+    ctype = str(vals[0]).strip()
+    if ctype not in _VALID_CONTROL_TYPES:
+        raise ValueError(
+            f"Unrecognized ControlType {ctype!r} for control {control}. "
+            f"Expected one of {sorted(_VALID_CONTROL_TYPES)}."
+        )
+    return ctype
+
+def get_normal_prep_input(wildcards):
+    # The file that feeds dilute_normal depends on the control type, so that the
+    # read-bundle chain is only built for NanoSeq-library controls. Wildcards must
+    # be substituted here (an input function returns concrete paths, not templates).
+    if get_control_type(wildcards.control) == CONTROL_TYPE_WGS:
+        return get_control_input_bam(wildcards)                       # raw bulk BAM
+    return f"control_duplex/{wildcards.control}.filtered.bam"          # read-bundled BAM
+
+
 # # modify rules to proceed straight to dilution
 # rule dilute_normal:
 #     input:
@@ -45,14 +83,15 @@ rule name_sort_control_bam:
     input:
         get_control_input_bam,
     output:
-        tmpdir=temp(directory("{control}_ctrl_tmp/")),
         outbam=temp("control_duplex/{control}.name_sorted.bam"),
+        # tmpdir=temp(directory("{control}_ctrl_tmp/")),
     benchmark:
         "benchmarks/name_sort_control_bam/{control}.txt"
     log:
         "logs/name_sort_control_bam/{control}.log"
     params:
         fasta=config["fasta"],
+        tmpdir = lambda wildcards: f"{wildcards.control}_ctrl_tmp/",
     resources:
         mem_mb=30000,
         runtime=lambda wildcards, attempt: _get_dynamic_runtime(attempt, basetime=60*8, increment=60*4, label="name_sort_control_bam"),
@@ -61,15 +100,14 @@ rule name_sort_control_bam:
         "name_sort_control_bam"
     shell:
         """
-        mkdir -p {output.tmpdir}
-        samtools sort -n -@ {threads} -T {output.tmpdir}/nsort -o {output.outbam} {input}
+        mkdir -p {params.tmpdir}
+        samtools sort -n -@ {threads} -T {params.tmpdir}/nsort -o {output.outbam} {input}
         """
-
 
 rule prepare_RcMcOd_tags_control:
     input:
         inbam=rules.name_sort_control_bam.output.outbam,
-        tmpdir=rules.name_sort_control_bam.output.tmpdir,
+        # tmpdir=rules.name_sort_control_bam.output.tmpdir,
     output:
         outbam=temp("control_duplex/{control}.od.bam"),
     benchmark:
@@ -78,6 +116,7 @@ rule prepare_RcMcOd_tags_control:
         "logs/prepare_RcMcOd_tags_control/{control}.log"
     params:
         fasta=config["fasta"],
+        tmpdir = lambda wildcards: f"{wildcards.control}_ctrl_tmp/",
     resources:
         mem_mb=30000,
         runtime=lambda wildcards, attempt: _get_dynamic_runtime(attempt, basetime=60*8, increment=60*4, label="prepare_RcMcOd_tags_control"),
@@ -88,11 +127,12 @@ rule prepare_RcMcOd_tags_control:
         """
         ulimit -c unlimited
         ulimit -n 8192
-        mkdir -p {input.tmpdir}
+        mkdir -p {params.tmpdir}
         samtools view -h {input.inbam} | \
-        bamsormadup inputformat=sam rcsupport=1 threads={threads} tmpfile={input.tmpdir}/bsmd \
+        bamsormadup inputformat=sam rcsupport=1 threads={threads} tmpfile={params.tmpdir}/bsmd \
         > {output.outbam} 2> {log}
         """
+        # mkdir -p {input.tmpdir}
 
 
 rule mark_optical_duplicates_control:
@@ -108,7 +148,7 @@ rule mark_optical_duplicates_control:
         "logs/mark_optical_duplicates_control/{control}.log"
     params:
         fasta=config["fasta"],
-        tmpdir=temp(directory("{control}_ctrl_tmp2/")),
+        tmpdir = lambda wildcards: f"{wildcards.control}_ctrl_tmp2/",
     resources:
         mem_mb=30000,
         runtime=lambda wildcards, attempt: _get_dynamic_runtime(attempt, basetime=480, increment=60*4, label="mark_optical_duplicates_control"),
@@ -162,8 +202,12 @@ rule mark_read_bundles_control:
 
 
 rule dilute_normal:
+    # Produces the matched normal that variant calling consumes (-A track).
+    #   Undiluted NanoSeq -> randomreadinbundle dedup of the read-bundled BAM.
+    #   Standard WGS      -> use the bulk directly; coordinate-sort + markdup only
+    #                        if it is not already sorted (production BAMs are).
     input:
-        ctrl_bam=rules.mark_read_bundles_control.output.outbam,
+        ctrl_bam=get_normal_prep_input,
     output:
         diluted_control="control_duplex/{control}.diluted.ctrl.bam",
         diluted_control_bai="control_duplex/{control}.diluted.ctrl.bam.bai",
@@ -173,10 +217,12 @@ rule dilute_normal:
         "logs/dilute_normal/{control}.log"
     params:
         dilution_factor=0.1,
+        control_type=lambda wildcards: get_control_type(wildcards.control),
+        wgs_label=CONTROL_TYPE_WGS,
     resources:
         mem_mb=10000,
         runtime=lambda wildcards, attempt: _get_dynamic_runtime(attempt, basetime=240, increment=120, label="dilute_normal"),
-    threads: 1
+    threads: 8
     conda:
         workflow.source_path("../envs/nanoseq_snakemake.yml")
     group:
@@ -184,6 +230,25 @@ rule dilute_normal:
     shell:
         """
         PATH=$PATH:$PWD/bin/
-        randomreadinbundle -I {input.ctrl_bam} -O {output.diluted_control} && \
-        samtools index {output.diluted_control}
+
+        if [ "{params.control_type}" = "{params.wgs_label}" ]; then
+            # Standard bulk WGS normal: do NOT read-bundle. Use as the -A track
+            # directly, ensuring it is coordinate-sorted + duplicate-marked + indexed.
+            sortorder=$(samtools view -H {input.ctrl_bam} | awk -F 'SO:' '/^@HD/{{print $2}}' | cut -f1)
+            if [ "$sortorder" = "coordinate" ]; then
+                echo "Control {wildcards.control} is coordinate-sorted bulk WGS; using directly (assumed duplicate-marked)."
+                ln -sf "$(readlink -f {input.ctrl_bam})" {output.diluted_control}
+                samtools index {output.diluted_control} {output.diluted_control_bai}
+            else
+                echo "Control {wildcards.control} bulk WGS not coordinate-sorted; sorting + marking duplicates."
+                samtools sort -@ {threads} -o {output.diluted_control}.tmp.sorted.bam {input.ctrl_bam}
+                samtools markdup -@ {threads} {output.diluted_control}.tmp.sorted.bam {output.diluted_control}
+                rm -f {output.diluted_control}.tmp.sorted.bam
+                samtools index {output.diluted_control} {output.diluted_control_bai}
+            fi
+        else
+            # Undiluted NanoSeq library normal: keep one read-pair per read bundle.
+            randomreadinbundle -I {input.ctrl_bam} -O {output.diluted_control} && \
+            samtools index {output.diluted_control} {output.diluted_control_bai}
+        fi
         """

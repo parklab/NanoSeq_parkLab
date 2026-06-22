@@ -15,7 +15,7 @@ rule name_sort_sample_bam:
     input:
         get_sample_bam,
     output:
-        tmpdir=temp(directory("{sample}_tmp/")),
+        # tmpdir=temp(directory("{sample}_tmp/")),
         outbam=temp("rcMcOd_duplex/{sample}.name_sorted.bam"),
     benchmark:
         "benchmarks/name_sort_sample_bam/{sample}.txt"
@@ -23,6 +23,8 @@ rule name_sort_sample_bam:
         "logs/name_sort_sample_bam/{sample}.log"
     params:
         fasta=config["fasta"],
+        # tmpdir=temp(directory("{sample}_tmp/")),
+        tmpdir = lambda wildcards: f"{wildcards.sample}_tmp/",
     resources:
         mem_mb=30000,
         runtime=lambda wildcards, attempt: _get_dynamic_runtime(attempt, basetime=60*8, increment=60*4, label="name_sort_sample_bam"),
@@ -31,15 +33,15 @@ rule name_sort_sample_bam:
         "name_sort_sample_bam"
     shell:
         """
-        mkdir -p {output.tmpdir}
-        samtools sort -n -@ {threads} -T {output.tmpdir}/nsort -o {output.outbam} {input}
+        mkdir -p {params.tmpdir}
+        samtools sort -n -@ {threads} -T {params.tmpdir}/nsort -o {output.outbam} {input}
         """
+        # mkdir -p {params.tmpdir}
 
 
 rule prepare_RcMcOd_tags:
     input:
         inbam=rules.name_sort_sample_bam.output.outbam,
-        tmpdir=rules.name_sort_sample_bam.output.tmpdir,
     output:
         outbam=temp("rcMcOd_duplex/{sample}.od.bam"),
     benchmark:
@@ -48,6 +50,7 @@ rule prepare_RcMcOd_tags:
         "logs/prepare_RcMcOd_tags/{sample}.log"
     params:
         fasta=config["fasta"],
+        tmpdir = lambda wildcards: f"{wildcards.sample}_tmp/",
     resources:
         mem_mb=30000,
         runtime=lambda wildcards, attempt: _get_dynamic_runtime(attempt, basetime=60*8, increment=60*4, label="prepare_RcMcOd_tags"),
@@ -58,12 +61,13 @@ rule prepare_RcMcOd_tags:
         """
         ulimit -c unlimited
         ulimit -n 8192
-        mkdir -p {input.tmpdir}
+        mkdir -p {params.tmpdir}
         samtools view -h {input.inbam} | \
-        bamsormadup inputformat=sam rcsupport=1 threads={threads} tmpfile={input.tmpdir}/bsmd \
+        bamsormadup inputformat=sam rcsupport=1 threads={threads} tmpfile={params.tmpdir}/bsmd \
         > {output.outbam} 2> {log}
         """
-
+        # tmpdir=rules.name_sort_sample_bam.params.tmpdir,
+        # mkdir -p {params.tmpdir}
 
 rule mark_optical_duplicates:
     input:
