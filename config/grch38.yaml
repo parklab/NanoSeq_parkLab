@@ -10,3 +10,41 @@ noise_wgns: ../test/from_abascal/NOISE_GRCh38.wgns.bed.gz
 snp_wgns: ../test/from_abascal/SNP_GRCh38.wgns.bed.gz
 undiulted_nanoseq_bam_ctrl: 1
 gnomad: /n/data1/hms/dbmi/park/SOFTWARE/REFERENCE/hg38/gatk-best-practices_somatic-hg38/af-only-gnomad.hg38.vcf.gz
+mito_contig: chrM
+
+# Optional BED of NUMT segments in mitochondrial coordinates. Left unset for
+# now: the Circos plots omit the NUMT ring and the low-MAPQ track stands in as
+# the data-driven marker of regions to treat with caution. Point this at a BED
+# (e.g. derived by aligning the mito contig against the nuclear contigs) to
+# switch the ring on -- no other change is needed.
+numt_bed: mito_mask/numt_blocks.chrM.bed.gz
+
+# --- mitochondrial variant calling (first pass: UNMASKED) -------------------
+mito_n_intervals: 10
+mito_min_bulk_reads: 100      # dsa/variantcaller -z (explicit; cov diagnostic bypassed)
+mito_max_bulk_vaf: 0.02       # -v  THE parameter to sweep in later runs
+mito_min_as_xs: 50            # -a  sole NUMT defence while unmasked
+mito_min_dplx_per_strand: 2   # -d  a4s2
+mito_min_breadth_pct: 99.0    # donor selection: measured, not label-based
+mito_max_cv: 0.5
+mito_call_cross_donor: false  # true also calls the "-vs-" cross-donor normals
+
+# --- mitochondrial masks ----------------------------------------------------
+# Empirical low-MAPQ noise mask. 0.10 captures both high-identity NUMTs
+# (chr1 ~99.7%, chr13 ~99.2%); 0.20 captures only chr1. See
+# docs/mito_mask_methods.md for the identity-vs-mismapping calibration.
+mito_lowmapq_threshold: 0.10
+mito_lowmapq_min_depth: 20
+mito_lowmapq_min_breadth: 0.99
+# NUMT annotation track (reference-derived; annotation, NOT a mask)
+mito_numt_tile_window: 300
+mito_numt_tile_step: 100
+mito_numt_min_block: 200
+# Noise mask consumed by dsa -D. Comment out for a genuinely unmasked run.
+mito_noise_bed: mito_mask/lowmapq_noise.chrM.bed.gz
+# Drives the NUMT ring in the Circos plots (annotation only, never masking).
+
+# Consolidation (terminal step of a calling run). mito_exclude_samples is
+# applied ONLY to the NB rate fits, never to the call/burden tables.
+mito_consolidate_prefix: mito_consolidated/cohort
+mito_exclude_samples: []

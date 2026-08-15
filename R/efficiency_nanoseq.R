@@ -130,7 +130,9 @@ rbs$end = as.numeric(kk[, 5])
 chr_coords = as.data.frame(scanFaIndex(genomeFile))
 rownames(chr_coords) = chr_coords$seqnames
 rbs$chr_end = chr_coords[rbs$chr, "end"]
-rbs = rbs[which(rbs$end < rbs$chr_end),]
+# Also drop RBs starting at/before the first base: RB coordinates can be 0 for
+# fragments at the very start of a contig, and scanFa() errors on start < 1.
+rbs = rbs[which(rbs$end < rbs$chr_end & rbs$start >= 1),]
 
 rbs_both = rbs[which(rbs$minus + rbs$plus >= 4 & rbs$minus >= 2 & rbs$plus >= 2),]
 rbs_both = rbs_both[sample(1:nrow(rbs_both), min(10000, nrow(rbs_both))),] # 1000 random
@@ -181,7 +183,7 @@ rbs$insert = rbs$end - rbs$start
 chr_coords = as.data.frame(scanFaIndex(genomeFile))
 rownames(chr_coords) = chr_coords$seqnames
 rbs$chr_end = chr_coords[rbs$chr, "end"]
-rbs = rbs[which(rbs$end < rbs$chr_end),]
+rbs = rbs[which(rbs$end < rbs$chr_end & rbs$start >= 1),]
 
 
 res = as.data.frame(matrix(nrow = 7, ncol = 3))

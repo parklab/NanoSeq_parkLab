@@ -106,6 +106,27 @@ rule all:
         # optional a4s2-isolated BAMs
         expand("a4s2_bundles/{sample}.a4s2.bam", sample=SAMPLE) if isolate_a4s2 else [],
         expand("a4s2_bundles/{sample}.a4s2.bam.bai", sample=SAMPLE) if isolate_a4s2 else [],
+        # ---- mitochondrial NanoSeq ------------------------------------------
+        # Coverage tracks and Circos plots key on TestBamID: donors differing
+        # only in their matched control share a test BAM, so keying on Donor
+        # would recompute identical mitochondrial tracks.
+        expand("mito_tracks/{sample}.per_base.tsv.gz", sample=SAMPLE),
+        expand("mito_plots/{sample}.circos.pdf", sample=SAMPLE),
+        "mito_plots/all_samples.circos.pdf",
+        "mito_tracks/summary.tsv",
+        # Homopolymer stratifier for indel calls. Listed explicitly because,
+        # unlike the low-MAPQ mask (pulled in by dsa -D) and the NUMT track
+        # (pulled in by the plots), nothing else depends on it.
+        "mito_mask/homopolymers.chrM.bed.gz",
+        # Donor-keyed mito outputs, wrapped in a function because the mito
+        # modules are included AFTER this rule: DONOR and mito_call_targets
+        # do not exist at definition time, only at DAG-build time.
+        lambda wildcards: (
+            expand("mito_a4s2_bundles/{donor}.a4s2.bam", donor=DONOR)
+            + expand("mito_a4s2_bundles/{donor}.a4s2.avg_depth.tsv", donor=DONOR)
+            + expand("mito_efficiency/{donor}.tsv", donor=DONOR)
+            + mito_call_targets()
+        ),
 
 
 rule associate_sample_control:
@@ -164,6 +185,8 @@ rule associate_control_donor:
 include: "workflows/Snakefile.table_input.preproc_sample_bam.smk"
 include: "workflows/Snakefile.table_input.preproc_control_bam.smk"
 include: "workflows/Snakefile.table_input.run_nanoseq.from_bam.smk" # modify to take in the results from fragmentation
+# AUGUST 14, 2026: ANALYZE MITOCHONDRIAL GENOME COVERAGE AND VARIANTS, ISOLATING A4S2 DUPLEXES
+include: "workflows/Snakefile.table_input.analyze_mito.from_bam.smk" # modify to take in the results from fragmentation
 
 if isolate_a4s2:
     include: "workflows/Snakefile.table_input.a4s2_bam_stats.smk"

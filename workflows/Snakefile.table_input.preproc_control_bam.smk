@@ -8,7 +8,18 @@
 def get_control_input_bam(wildcards):
     control_bam = f"input_control_bam/{wildcards.control}.bam"
     if not os.path.exists(control_bam):
-        raise ValueError(f"Control BAM file not found for control {wildcards.control}. Expected: {control_bam}")
+        # "Bring your own preprocessed control": when the finished diluted
+        # control is already present -- linked in from a previous analysis --
+        # the raw input is not needed, and demanding it would block DAG
+        # construction for a file that never has to be rebuilt. Returning no
+        # input leaves the existing output up to date under mtime triggers.
+        final = f"control_duplex/{wildcards.control}.diluted.ctrl.bam"
+        if os.path.exists(final):
+            return []
+        raise ValueError(
+            f"Control BAM not found for {wildcards.control}. Provide either "
+            f"{control_bam} (to preprocess from scratch) or {final} "
+            f"(a previously diluted control, e.g. symlinked in).")
     return control_bam
 
 

@@ -532,34 +532,35 @@ rule start_indelCall:
         """        
 
 indelPath_wJob=indelPath+"/{job}"
-rule indelCall_per_partition:
+
+# Indel calling is split into three per-partition stages that replace the classical
+# perl/R chain (indelCaller_step1.pl / step2.pl / step3.R) with bin/indelCaller.py:
+#   indel_propose (= step1)  dsa.bed.gz         -> {job}.indel.bed.gz          (light)
+#   indel_call    (= step2)  {job}.indel.bed.gz -> {job}.indel.vcf.gz          (heavy: bcftools/bundle)
+#   indel_verify  (= step3)  {job}.indel.vcf.gz -> {job}.indel.filtered.vcf.gz (medium: pysam vs normal)
+# Distinct group labels keep granular per-stage restart; batch with --group-components if
+# per-partition cluster submission overhead becomes a problem.
+rule indel_propose_per_partition:
     input:
         dsa                     =   rules.dsa_bed_per_partition.output.coverage,
         indir                   =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
-        duplex_bam              =   rules.mark_read_bundles.output.outbam,
-        ctrl_bam                =   get_control_bam,
-        coverage                =   rules.partition_coverage.output.coverage, # "{sample}.runNanoSeq/tmpNanoSeq/part/args.json",
+        coverage                =   rules.partition_coverage.output.coverage,
         job                     =   "{sample}.runNanoSeq/tmpNanoSeq/dsa/{job}.start",
         nfiles                  =   rules.start_indelCall.output.nfiles,
         argsJson                =   rules.start_indelCall.output.argsJson,
     output:
         indel_bed               =   indelPath_wJob+".indel.bed.gz",
-        indel_vcf               =   indelPath_wJob+".indel.vcf.gz",
-        indel_filtered_vcf      =   indelPath_wJob+".indel.filtered.vcf.gz",
-        indel_filtered_vcf_tbi  =   indelPath_wJob+".indel.filtered.vcf.gz.tbi",
-        doneFile                =   indelPath_wJob+".done",
     benchmark:
-        "benchmarks/indelCall_per_partition/{sample}.{job}.txt"
+        "benchmarks/indel_propose_per_partition/{sample}.{job}.txt"
     log:
-        "logs/indelCall_per_partition/{sample}.{job}.log"
+        "logs/indel_propose_per_partition/{sample}.{job}.log"
     params: # a preset for the ultrashear or covaris libraries
         # DEFAULTS FROM NANOSEQ SOFTWARE `runNanoSeq.py`
-        fasta                   =   config["fasta"],
         max_reads_bundle        =   2,
         min_as_xs               =   50,
         min_normal_coverage     =    15,
-        max_bulk_vaf            =   0.02, # 0.01, # 0.01 may be way too strict
-        ## FROM GILAD'S 2025 CEREBELLUM PAPER: https://www.biorxiv.org/content/10.1101/2025.09.29.679392v1.full.pdf 
+        max_bulk_vaf            =   0.02, # 0.01, # 0.01 may be way too strict; also used by indel_verify
+        ## FROM GILAD'S 2025 CEREBELLUM PAPER: https://www.biorxiv.org/content/10.1101/2025.09.29.679392v1.full.pdf
         max_frac_clips          =   0,
         trim_from_3p_at_pos     =   135,
         trim_from_5p_at_pos     =   10,
@@ -574,25 +575,19 @@ rule indelCall_per_partition:
         # trim_from_3p_at_pos     =   136, # DEFAULT FROM `runNanoSeq.py`
         # trim_from_5p_at_pos     =   8, # DEFAULT FROM `runNanoSeq.py`
     resources:
-        mem_mb                  =   20000,
-        runtime                 =   lambda wildcards, attempt: get_dynamic_runtime_indelcall(attempt),
+        mem_mb                  =   4000,
+        runtime                 =   60,
     threads: 1
     conda:
         workflow.source_path("../envs/nanoseq_snakemake.yml")
     group:
-        "indelCall_per_partition"
+        "indel_propose"
     shell:
         """
-        # set path to file
         PATH=$PATH:$PWD/bin/
-
-        # navigate to output directory
         cd {input.indir}
-
-        echo -e "starting indel call for job #{wildcards.job}"
-        # indel call step 1
-        # ./tmpNanoSeq/indel/{wildcards.job}.indel.bed.gz
-        indelCaller_step1.pl \
+        echo -e "propose (step1) indel candidates for job #{wildcards.job}"
+        indelCaller.py propose \
         -o ../{output.indel_bed} \
         -rb {params.max_reads_bundle} \
         -t3 {params.trim_from_3p_at_pos} \
@@ -601,21 +596,77 @@ rule indelCall_per_partition:
         -vaf {params.max_bulk_vaf} \
         -a {params.min_as_xs} \
         -c {params.max_frac_clips} \
-        ../{input.dsa} &&
-        # indel call step 2
-        indelCaller_step2.pl \
+        ../{input.dsa}
+        """
+
+rule indel_call_per_partition:
+    input:
+        indir                   =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
+        duplex_bam              =   rules.mark_read_bundles.output.outbam,
+        indel_bed               =   rules.indel_propose_per_partition.output.indel_bed,
+    output:
+        indel_vcf               =   indelPath_wJob+".indel.vcf.gz",
+    benchmark:
+        "benchmarks/indel_call_per_partition/{sample}.{job}.txt"
+    log:
+        "logs/indel_call_per_partition/{sample}.{job}.log"
+    params:
+        fasta                   =   config["fasta"],
+    resources:
+        mem_mb                  =   20000,
+        runtime                 =   lambda wildcards, attempt: get_dynamic_runtime_indelcall(attempt),
+    threads: 1
+    conda:
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
+    group:
+        "indel_call"
+    shell:
+        """
+        PATH=$PATH:$PWD/bin/
+        cd {input.indir}
+        echo -e "call (step2) indels per read bundle for job #{wildcards.job}"
+        indelCaller.py call \
         -t \
         -o ./tmpNanoSeq/indel/{wildcards.job}.indel \
         -r {params.fasta} \
         -b ../{input.duplex_bam} \
-        ../{output.indel_bed} &&
-        # indel call step 3
-        indelCaller_step3.R \
+        ../{input.indel_bed}
+        """
+
+rule indel_verify_per_partition:
+    input:
+        indir                   =   rules.coverage_histogram_controlBam.output.runNanoSeqDir,
+        ctrl_bam                =   get_control_bam,
+        indel_vcf               =   rules.indel_call_per_partition.output.indel_vcf,
+    output:
+        indel_filtered_vcf      =   indelPath_wJob+".indel.filtered.vcf.gz",
+        indel_filtered_vcf_tbi  =   indelPath_wJob+".indel.filtered.vcf.gz.tbi",
+        doneFile                =   indelPath_wJob+".done",
+    benchmark:
+        "benchmarks/indel_verify_per_partition/{sample}.{job}.txt"
+    log:
+        "logs/indel_verify_per_partition/{sample}.{job}.log"
+    params:
+        fasta                   =   config["fasta"],
+        max_bulk_vaf            =   0.02, # matches indel_propose -vaf
+    resources:
+        mem_mb                  =   8000,
+        runtime                 =   60*4,
+    threads: 1
+    conda:
+        workflow.source_path("../envs/nanoseq_snakemake.yml")
+    group:
+        "indel_verify"
+    shell:
+        """
+        PATH=$PATH:$PWD/bin/
+        cd {input.indir}
+        echo -e "verify (step3) indels against matched normal for job #{wildcards.job}"
+        indelCaller.py verify \
         {params.fasta} \
-        ../{output.indel_vcf} \
+        ../{input.indel_vcf} \
         ../{input.ctrl_bam} \
         {params.max_bulk_vaf} &&
-        # touch
         touch ../{output.doneFile}
         echo -e "indel calling job {wildcards.job} is done"
         """

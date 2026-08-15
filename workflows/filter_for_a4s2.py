@@ -19,8 +19,14 @@ track_readbundle = []
 total_bundles = 0
 counter = 0
 
-bam = pysam.AlignmentFile(args.bam, "rb")
-outbam = pysam.AlignmentFile(args.out, "wb", template=bam)
+status = open(args.status, 'a', buffering=1)
+
+# The input is RB-tag sorted (not coordinate sorted) and may be BAM or CRAM;
+# let htslib detect the format. The reads are written unsorted first and then
+# coordinate sorted into args.out at the end.
+unsorted_out = args.out + ".unsorted.tmp.bam"
+bam = pysam.AlignmentFile(args.bam, "r")
+outbam = pysam.AlignmentFile(unsorted_out, "wb", template=bam)
 
 for read in bam.fetch(until_eof=True):
     if current_read_bundle is None:
@@ -37,8 +43,8 @@ for read in bam.fetch(until_eof=True):
             
             # print a status check every 1000 a4s2 read bundles processed
             if ( counter % 1000 == 0 ):
-                print("%d out of %d read bundles processed are a4s2; %f percent"%(counter, total_bundles, counter/total_bundles*100), end='\n',file=open(args.status,'a'))
-            
+                print("%d out of %d read bundles processed are a4s2; %f percent"%(counter, total_bundles, counter/total_bundles*100), end='\n',file=status)
+
             print_read_out = False # reset the print read out flag for the new read bundle
 
         track_readbundle = [] # empty out the read bundles; we will start tracking the new read bundle
@@ -71,12 +77,23 @@ for read in bam.fetch(until_eof=True):
         print_read_out = True
 
 
+# flush the final read bundle: the loop only writes a bundle when the *next*
+# bundle starts, so without this the last bundle in the file is dropped.
+if ( print_read_out == True ):
+    for i in track_readbundle:
+        outbam.write(i)
+    counter += 1
+
 bam.close()
 outbam.close()
+
+print("%d out of %d read bundles processed are a4s2; %f percent"%(counter, total_bundles, counter/total_bundles*100 if total_bundles else 0), end='\n', file=status)
+status.close()
+
 print("now sorting and indexing the output BAM file\n")
-sorted_out = '.'.join(['sorted', args.out])
-pysam.sort("-o", sorted_out, args.out)
-pysam.index(sorted_out)
+pysam.sort("-o", args.out, unsorted_out)
+pysam.index(args.out)
+os.remove(unsorted_out)
 print("completed sorting and indexing the output BAM file\n")
 print("done")
 
