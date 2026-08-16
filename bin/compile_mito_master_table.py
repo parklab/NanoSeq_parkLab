@@ -41,12 +41,13 @@ DLOOP_HI, DLOOP_LO = 16023, 576
 SHEET_COLS = ["Batch", "Cohort", "CellType", "BiologicalDonor", "Concentration",
               "ControlSource", "Phenotype"]
 
-# Sample naming embeds the sorted population in the donor string
-# (S13794BA9NeuNpos vs S13794BA9NeuNneg; 1539BA9NeuNp). Left as-is, donor is
-# perfectly nested within celltype, so a donor-adjusted model is aliased rather
-# than paired -- it silently returns a cell-type estimate that is not one.
-# donor_id strips the population token so the same individual's NeuN+ and NeuN−
-# libraries share an id and within-donor contrasts become estimable.
+# Some sample-naming conventions embed the sorted population in the donor
+# string, e.g. "<donor>NeuNpos" vs "<donor>NeuNneg", or a "<donor>NeuNp"
+# shorthand. Left as-is, donor is perfectly nested within celltype, so a
+# donor-adjusted model is aliased rather than paired -- it silently returns a
+# cell-type estimate that is not one. donor_id strips the population token so
+# one individual's NeuN+ and NeuN− libraries share an id and within-donor
+# contrasts become estimable.
 _CELLTYPE_TOKENS = ["NeuNpos", "NeuNneg", "NeuNp", "NeuNn", "NeuN", "Neu", "OL"]
 
 
@@ -184,7 +185,8 @@ with gzip.open(args.out + ".calls.tsv.gz", "wt", newline="") as fh:
     w.writerows(calls)
 
 BURDEN_COLS = ["deployment", "sample", "batch", "cohort", "celltype", "biologicaldonor",
-               "donor_id", "concentration", "controlsource", "a4s2_depth", "breadth_a4s2_pct",
+               "donor_id", "concentration", "controlsource", "phenotype",
+               "a4s2_depth", "breadth_a4s2_pct",
                "dup_bases", "n_snv_mol", "n_snv_site", "n_indel_mol", "n_indel_site",
                "n_snv_recurrent", "n_snv_dloop",
                "burden_molecule", "burden_site", "frac_recurrent", "frac_dloop"]

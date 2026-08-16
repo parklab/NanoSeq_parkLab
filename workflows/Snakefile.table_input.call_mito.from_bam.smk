@@ -114,9 +114,11 @@ MITO_JOBS = list(range(1, len(MITO_BOUNDS) + 1))
 
 # ---- which donors get called -----------------------------------------------
 # Selection is on the MEASURED coverage signature, never on the Fragmentation
-# label or the donor suffix: two donors (ST001-1D, ST003-1Q) have their
-# RENS/WGNS assignment transposed, so a label-based filter would pick their
-# sparse restriction library and discard the deepest sample in the cohort.
+# label or the donor suffix. Sheets have been observed with the RENS/WGNS
+# assignment transposed between a donor's two libraries, in which case a
+# label-based filter picks the sparse restriction library and discards the
+# deepest sample. Measured breadth/CV cannot be transposed by a bookkeeping
+# error, so it is the only safe selector.
 MITO_SUMMARY_TSV   = "mito_tracks/summary.tsv"
 MITO_MIN_BREADTH   = float(config.get("mito_min_breadth_pct", 99.0))
 MITO_MAX_CV        = float(config.get("mito_max_cv", 0.5))
