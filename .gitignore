@@ -6,3 +6,12 @@ notes/
 **/.nextflow.log
 **/.nextflow.log.*
 .DS_Store
+docs/
+memory/
+intervals_hg19/
+intervals_hg38/
+hs37d5.fa
+hs37d5.fa.fai
+include/
+intervals_hg38_smaht_100mb
+intervals_per_10mb_hg19
